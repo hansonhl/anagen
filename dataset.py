@@ -152,6 +152,7 @@ def generate_anagen_dataset_from_file(
                         tok_str_list += [orig_text[i].text for i in
                                          range(curr_start, curr_end + 1)]
                         tok_str_list += ["</anaphor>"]
+                        tok_str_list += ["<|endoftext|>"]
                         out_str = " ".join(tok_str_list)
                         out_f.write(out_str + "\n")
 
