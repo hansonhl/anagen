@@ -7,6 +7,7 @@ from subprocess import check_output
 import torch
 import torch.nn.functional as F
 import numpy as np
+import pandas as pd
 
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 
@@ -77,6 +78,8 @@ def main():
                         help="pre-processed input data for anagen")
     parser.add_argument("--out_path", "-o", type=str,
                         help="Where to store predictions of the model")
+    parser.add_argument("--csv", action="store_true",
+                        help="output in csv format")
     parser.add_argument("--readable", action="store_true",
                         help="Produce readable output for easy comparison")
     parser.add_argument("--no_cuda", action='store_true',
@@ -95,6 +98,10 @@ def main():
     parser.add_argument("--top_p", type=float, default=0.9)
     args = parser.parse_args()
 
+    assert not (args.csv and args.readable)
+    if args.csv:
+        assert args.out_path is not None
+
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
 
     np.random.seed(args.seed)
@@ -109,7 +116,10 @@ def main():
     eval_f = open(args.eval_path, "r")
     out_f = open(args.out_path, "w") if args.out_path else sys.stdout
 
-    for line in tqdm(eval_f):
+    if args.csv:
+        rows = []
+
+    for line in tqdm(eval_f, total=num_lines):
         line = line.strip()
         x_raw, y_raw = line.split(" <anaphor> ")
         x_raw += " <anaphor>"
@@ -130,19 +140,28 @@ def main():
         for o in out:
             text = tokenizer.decode(o, clean_up_tokenization_spaces=True)
             text = text[: text.find("</anaphor>")].strip()
+            if "</anteced>" in text:
+                text = text[:text.find("</anteced>")].strip()
             pred_strs.append(text)
-        if not args.readable:
-            out_f.write(",".join(pred_strs)+"\m")
-        else:
-            ctx_str = x_raw[: x_raw.find("<anaphor>")].strip()
-            y_str = y_raw[: y_raw.find("</anaphor>")].strip()
+        ctx_str = x_raw[: x_raw.find("<anaphor>")].strip()
+        gold_str = y_raw[: y_raw.find("</anaphor>")].strip()
+        if args.csv:
+            row = {"context": ctx_str, "gold": gold_str}
+            for i, s in enumerate(pred_strs):
+                row["pred%d" % i] = s
+            rows.append(row)
+        elif not args.readable:
+            out_f.write(",".join(pred_strs)+"\n")
             pred_str = ", ".join(pred_strs)
-            displ_str = "[CTXT] %s\n[GOLD] %s\n[PRED] %s\n\n" % (ctx_str, y_str, pred_str)
+            displ_str = "[CTXT] %s\n[GOLD] %s\n[PRED] %s\n\n" % (ctx_str, gold_str, pred_str)
             out_f.write(displ_str)
 
     eval_f.close()
     if args.out_path:
         out_f.close()
+    if args.csv:
+        df = pd.DataFrame(rows)
+        df.to_csv(args.out_path, index=False)
 
 if __name__ == "__main__":
     main()
