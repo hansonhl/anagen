@@ -107,6 +107,7 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
+    print("Loading model")
     tokenizer = GPT2Tokenizer.from_pretrained(args.model_dir)
     model = GPT2LMHeadModel.from_pretrained(args.model_dir)
     model.to(args.device)
@@ -118,7 +119,7 @@ def main():
 
     if args.csv:
         rows = []
-
+    print("Finished loading model")
     for line in tqdm(eval_f, total=num_lines):
         line = line.strip()
         x_raw, y_raw = line.split(" <anaphor> ")
