@@ -61,8 +61,8 @@ def train(args, model, train_dataset, eval_dataset):
         t_total = len(train_dataloader) // \
             args.gradient_accumulation_steps * args.num_train_epochs
     """
-    model.freeze_gpt2()
     model.to(device)
+    model.freeze_gpt2()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     num_batches = len(train_dataset)
@@ -76,9 +76,11 @@ def train(args, model, train_dataset, eval_dataset):
 
     # TODO: add checkpoint loading functionality
 
-    if eval_dataset:
-        best_loss =
+    if args.model_save_path:
+        # keep track of best loss for early stopping
+        best_loss = float(inf)
         best_step = 0
+
     global_step = 0
     total_training_time = 0.0
     for epoch in range(args.train_epochs):
@@ -86,6 +88,7 @@ def train(args, model, train_dataset, eval_dataset):
         for step, batch in enumerate(train_dataloader):
             batch = batch_to_device(batch, device)
             model.zero_grad()
+            optimizer.zero_grad()
             model.train()
 
             start_time = time.time()
@@ -111,20 +114,27 @@ def train(args, model, train_dataset, eval_dataset):
             if global_step % args.eval_and_save_steps == 0:
                 eval_results = evaluate(args, model, eval_dataset)
                 # TODO: add tensorboard writer functionality
+                eval_loss = eval_results["eval_loss"]
 
                 if args.model_save_path:
-                    print("  saving model to %s" % args.model_save_path)
-                    save_path = args.model_save_path + ("_step_%d.ckpt" % global_step)
                     model_checkpoint = {
                         "args": args,
                         "epoch": epoch,
+                        "eval_loss": eval_loss,
                         "step_in_epoch": step,
                         "global_step": global_step,
                         "model_state_dict": model.state_dict(), # just save everything for now
                         "optimizer_state_dict": optimizer.state_dict()
                     }
-                    torch.save(model_checkpoint, args.model_save_path)
+                    if eval_loss < best_loss:
+                        best_save_path = args.model_save_path + "_best.ckpt"
+                        print("  current model has best eval loss, saving to %d")
+                        torch.save(model_checkpoint, best_step)
+                        best_loss = eval_loss
 
+                    latest_save_path = args.model_save_path + "_latest.ckpt"
+                    torch.save(model_checkpoint, latest_save_path)
+                    del model_checkpoint
 
 
 def evaluate(args, model, eval_dataset):
@@ -158,3 +168,7 @@ def evaluate(args, model, eval_dataset):
     print("***** Eval results *****")
     print("  eval_loss = %.6f" % eval_loss)
     print("  perplexity = %.6f" % perplexity)
+    return {
+        "eval_loss": eval_loss,
+        "perplexity": perplexity
+    }
