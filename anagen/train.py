@@ -76,6 +76,9 @@ def train(args, model, train_dataset, eval_dataset):
 
     # TODO: add checkpoint loading functionality
 
+    if eval_dataset:
+        best_loss =
+        best_step = 0
     global_step = 0
     total_training_time = 0.0
     for epoch in range(args.train_epochs):
@@ -93,6 +96,9 @@ def train(args, model, train_dataset, eval_dataset):
             optimizer.step()
             total_training_time += time.time() - start_time
             global_step += 1
+
+            loss = loss.item()
+            del res_dict
 
             if global_step % args.log_steps == 0:
                 avg_time_per_batch = total_training_time / global_step
@@ -144,6 +150,7 @@ def evaluate(args, model, eval_dataset):
                 print("  evaluated %d batches" % step + 1)
             eval_loss += res_dict["loss"].item() * res_dict["num_toks"].item()
             num_toks += res_dict["num_toks"].item()
+            del res_dict
 
     eval_loss = eval_loss / num_toks
     perplexity = torch.exp(torch.tensor(eval_loss))

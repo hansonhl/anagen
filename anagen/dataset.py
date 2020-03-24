@@ -38,16 +38,34 @@ class AnagenDocument:
             in_segment (int or None): segment index, if given then the start
                 and end above are relevant to this segment.
             output_str (bool): whether to undo bpe and return original string. """
-    def get_span_toks(self, start, end, in_segment=None, output_str=True):
+    def decode(self, start, end, in_segment=None, output_str=True):
         if start == -1 and end == -1:
             return "<null>"
         if not in_segment:
-            in_segment, start, end = self.index_in_segments(start, end)
-        span_toks = self.segment_toks[in_segment][start:end+1]
-        if output_str:
-            return self.tokenizer.convert_tokens_to_string(span_toks)
+            in_segment, in_seg_start, in_seg_end = self.index_in_segments(start, end)
+            global_start, global_end = start, end
         else:
-            return span_toks
+            global_start = self.segment_starts[in_segment] + start
+            global_end = self.segment_starts[in_segment] + end
+        span_toks = self.segment_toks[in_segment][in_seg_start:in_seg_end+1]
+        subtoken_map = self.subtoken_map[global_start:global_end+1]
+
+        res = []
+        prev_x = -1
+        curr_word = ""
+        for tok, x in zip(span_toks, subtoken_map):
+            if prev_x != x and prev_x != -1:
+                res.append(curr_word)
+                curr_word = ""
+            curr_word += tok
+            prev_x = x
+        if curr_word != "":
+            res.append(curr_word)
+        if output_str:
+            return " ".join(res)
+        else:
+            return res
+
 
 """ Intermediate object representing one training example in the anaphor
     generation task"""
@@ -113,19 +131,19 @@ class AnagenDataset(Dataset):
         print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
 
     """ Get the tokens of a span in a given document.
-        See definition in AnagenDocument.get_span_toks()"""
-    def get_span_toks(self, doc, start, end, in_segment=None):
+        See definition in AnagenDocument.decode()"""
+    def decode(self, doc, start, end, in_segment=None):
         if start == -1 and end == -1:
             return "<null>"
         if isinstance(doc, str):
-            return self.documents[doc].get_span_toks(start, end, in_segment)
+            return self.documents[doc].decode(start, end, in_segment)
         if isinstance(doc, AnagenDocument):
-            return doc.get_span_toks(start, end, in_segment)
+            return doc.decode(start, end, in_segment)
         else:
             ids = doc[start:end+1]
-            return self.decode(ids)
+            return self.decode_ids(ids)
 
-    def decode(self, ids):
+    def decode_ids(self, ids):
         # TODO: add function to revert to original word form using subtoken_map.
         if torch.is_tensor(ids):
             ids = ids.tolist()
@@ -256,43 +274,28 @@ class AnagenDataset(Dataset):
         # print("anaphor_ids", anaphor_ids) #ok
         #
         # for s, e, anaphor_id in zip(anteced_starts, anteced_ends, anaphor_ids):
-            # print("[anteced]", self.get_span_toks(doc, s, e), "[anaphor]", self.decode(anaphor_id))
-        self.batches.append([doc_key, ctx_set, ctx_set_idxs, ctx_starts,
-                             anteced_starts, anteced_ends, anaphor_starts, anaphor_ids])
+            # print("[anteced]", self.decode(doc, s, e), "[anaphor]", self.decode(anaphor_id))
+        self.batches.append((doc_key, ctx_set, ctx_starts, ctx_set_idxs,
+                             anteced_starts, anteced_ends, anaphor_starts, anaphor_ids))
 
     def __len__(self):
         return len(self.batches)
 
-    """ finish preparation of batch """
+    """ obtain full id form of ctx, pass on everything else """
     def __getitem__(self, idx):
-        doc_key, ctx_set, ctx_set_idxs, ctx_starts, anteced_starts, anteced_ends, \
+        doc_key, ctx_set, ctx_starts, ctx_set_idxs, anteced_starts, anteced_ends, \
              anaphor_starts, anaphor_ids = self.batches[idx]
+
         doc = self.documents[doc_key]
 
         # obtain full id form of ctx
         ctx_ids = [flatten(doc.segment_ids[start_i:end_i+1]) for start_i, end_i in ctx_set]
 
-        # transform everything else into tensor form.
-        # All following tensors have dim [batch_size,]
-        ctx_starts = torch.tensor(ctx_starts)
-        ctx_set_idxs = torch.tensor(ctx_set_idxs)
-        anteced_starts = torch.tensor(anteced_starts)
-        anteced_ends = torch.tensor(anteced_ends)
-        anaphor_starts = torch.tensor(anaphor_starts)
-
-        anteced_starts_in_ctx = torch.clamp(anteced_starts - ctx_starts, min=-1)
-        anteced_ends_in_ctx = torch.clamp(anteced_ends - ctx_starts, min=-1)
-        anaphor_starts_in_ctx = anaphor_starts - ctx_starts
-
-        # for ctx_range, ctx_id in zip(ctx_set, ctx_ids): #ok
-        #     print("ctx_idx_start_end",ctx_range)
-        #     print("[CTX]", self.decode(ctx_id))
-
         # for s, e, anaphor_id in zip(anteced_starts_in_ctx, anteced_ends_in_ctx, anaphor_ids):
-            # print("[anteced]", self.get_span_toks(doc, s, e), "[anaphor]", self.decode(anaphor_id))
+            # print("[anteced]", self.decode(doc, s, e), "[anaphor]", self.decode(anaphor_id))
 
-        return ctx_ids, ctx_set_idxs, anteced_starts_in_ctx, anteced_ends_in_ctx, \
-            anaphor_starts_in_ctx, anaphor_ids
+        return doc_key, ctx_set, ctx_starts, ctx_ids, ctx_set_idxs, \
+            anteced_starts, anteced_ends, anaphor_starts, anaphor_ids
 
 """ Processes data retrieved from Dataset.__getitem__, converts everything into
     tensors. Returns a dictionary containing content of batch:
@@ -311,9 +314,21 @@ class AnagenDataset(Dataset):
     'scramble_idxs': [batch_size,] tensor of indices that is applied to sort
         examples in order of decreasing anaphor length."""
 def collate(batch):
-    ctx_ids, ctx_set_idxs, anteced_starts_in_ctx, anteced_ends_in_ctx, \
+    _, _, ctx_starts, ctx_ids, ctx_set_idxs, anteced_starts, anteced_ends, \
         anaphor_starts_in_ctx, anaphor_ids = batch[0]
+
+    # transform everything else into tensor form.
+    # All following tensors have dim [batch_size,]
+    ctx_starts = torch.tensor(ctx_starts)
+    ctx_set_idxs = torch.tensor(ctx_set_idxs)
     ctx_lens = torch.tensor([len(ctx_id) for ctx_id in ctx_ids])
+
+    anteced_starts = torch.tensor(anteced_starts)
+    anteced_ends = torch.tensor(anteced_ends)
+    anaphor_starts = torch.tensor(anaphor_starts)
+    anteced_starts_in_ctx = torch.clamp(anteced_starts - ctx_starts, min=-1)
+    anteced_ends_in_ctx = torch.clamp(anteced_ends - ctx_starts, min=-1)
+    anaphor_starts_in_ctx = anaphor_starts - ctx_starts
 
     # just pad ctxs, don't sort them
     ctx_ids = [torch.tensor(ctx) for ctx in ctx_ids] # convert to tensor form

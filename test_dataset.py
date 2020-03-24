@@ -8,7 +8,15 @@ example_in_path = "data/dev.english.256.onedoc.anagen.jsonlines"
 # use tokenizer from pretrained model already downloaded to my machine
 tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-dataset = AnagenDataset(example_in_path, batch_size=8)
+dataset = AnagenDataset(example_in_path, batch_size=8, max_num_ctxs_in_batch=2)
+
+for i in range(len(dataset)):
+    doc_key, ctx_set, ctx_starts, ctx_ids, ctx_set_idxs, \
+        anteced_starts, anteced_ends, anaphor_starts, anaphor_ids = dataset[i]
+
+    for j in range(len(anteced_starts)):
+        print(dataset.decode(doc_key, anteced_starts[j], anteced_ends[j]))
+
 
 sampler = SequentialSampler(dataset)
 dataloader = DataLoader(dataset, sampler=sampler,
@@ -34,6 +42,8 @@ for i, batch in enumerate(dataloader):
         anaphor_ids = batch["anaphor_ids"][i]
         anteced_start = batch["anteced_starts"][i]
         anteced_end = batch["anteced_ends"][i]
-        anteced_str = dataset.get_span_toks(ctx, anteced_start, anteced_end)
-        anaphor_str = dataset.decode(anaphor_ids.tolist())
+
+        dataset.decode()
+        # anteced_str = dataset.get_span_toks(ctx, anteced_start, anteced_end)
+        # anaphor_str = dataset.decode(anaphor_ids.tolist())
         print("[anteced]", anteced_str, "[anaphor]", anaphor_str)
