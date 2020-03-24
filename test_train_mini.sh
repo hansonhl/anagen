@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python anagen_test_train.py \
+python run_train.py \
     --train_jsonlines data/dev.english.256.twodoc.anagen.jsonlines \
     --gpu \
     --train_batch_size 16 \
