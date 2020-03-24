@@ -188,11 +188,10 @@ class AnagenDataset(Dataset):
 
     """ After preparing all examples, group them into batches stored in memory"""
     def _finalize_batches(self):
-        curr_batch = []
-        ctxs = set()
-        prev_doc_key = None
         for doc_key, examples in self.docs_to_examples.items():
             # ensure all examples in a batch are from the same document
+            curr_batch = []
+            ctxs = set()
             for example in examples:
                 ctxs.add(example.ctx_seg_start_idx)
                 if len(curr_batch) >= self.batch_size or len(ctxs) > self.max_num_ctxs_in_batch:
@@ -203,7 +202,6 @@ class AnagenDataset(Dataset):
                     curr_batch.append(example)
             if len(curr_batch) > 0:
                 self._columnize_and_add_batch(curr_batch, doc_key)
-                curr_batch = []
 
 
     """convert batch to "column" form and append batch to self.batches"""
@@ -319,7 +317,6 @@ def collate(batch):
 
     # just pad ctxs, don't sort them
     ctx_ids = [torch.tensor(ctx) for ctx in ctx_ids] # convert to tensor form
-    print(len(ctx_ids))
     padded_ctx_ids = torch.nn.utils.rnn.pad_sequence(ctx_ids, batch_first=True,
                                                      padding_value=GPT2_EOS_TOKEN_ID)
     ctx_ids_padding_mask = (torch.arange(padded_ctx_ids.shape[1])[None, :] \

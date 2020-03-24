@@ -18,6 +18,8 @@ def main():
                                   args.max_num_ctxs_in_batch,
                                   args.max_segment_len)
 
+    return
+
     if args.eval_jsonlines:
         eval_dataset = AnagenDataset(args.eval_jsonlines,
                                      args.eval_batch_size,
