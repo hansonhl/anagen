@@ -78,7 +78,7 @@ def train(args, model, train_dataset, eval_dataset):
 
     if args.model_save_path:
         # keep track of best loss for early stopping
-        best_loss = float(inf)
+        best_loss = float("inf")
         best_step = 0
 
     global_step = 0
