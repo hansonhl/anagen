@@ -319,6 +319,7 @@ def collate(batch):
 
     # just pad ctxs, don't sort them
     ctx_ids = [torch.tensor(ctx) for ctx in ctx_ids] # convert to tensor form
+    print(len(ctx_ids))
     padded_ctx_ids = torch.nn.utils.rnn.pad_sequence(ctx_ids, batch_first=True,
                                                      padding_value=GPT2_EOS_TOKEN_ID)
     ctx_ids_padding_mask = (torch.arange(padded_ctx_ids.shape[1])[None, :] \
@@ -328,7 +329,6 @@ def collate(batch):
     anaphor_lens = torch.tensor([len(anaphor_id) for anaphor_id in anaphor_ids])
     sorted_anaphor_lens, scramble_idxs = torch.sort(anaphor_lens, descending=True)
     sorted_anaphor_ids = [torch.tensor(anaphor_ids[i]) for i in scramble_idxs]
-    print(len(sorted_anaphor_ids))
     padded_anaphor_ids = torch.nn.utils.rnn.pad_sequence(sorted_anaphor_ids, batch_first=True,
                                                          padding_value=GPT2_EOS_TOKEN_ID)
     anaphor_ids_padding_mask = (torch.arange(padded_anaphor_ids.shape[1])[None, :] \
