@@ -129,12 +129,12 @@ def train(args, model, train_dataset, eval_dataset):
                     }
                     if eval_loss < best_loss:
                         best_save_path = args.model_save_path + "_best.ckpt"
-                        print("  current model has best eval loss, saving to %d")
-                        torch.save(model_checkpoint, best_step)
+                        print("  current model has best eval loss, saving to %s" % best_save_path)
+                        torch.save(model_checkpoint, best_save_path)
                         best_loss = eval_loss
 
-                    print("  saving latest version of model")
                     latest_save_path = args.model_save_path + "_latest.ckpt"
+                    print("  saving latest version of model to %s" % latest_save_path)
                     torch.save(model_checkpoint, latest_save_path)
                     del model_checkpoint
 
