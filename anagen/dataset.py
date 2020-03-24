@@ -315,7 +315,7 @@ class AnagenDataset(Dataset):
         examples in order of decreasing anaphor length."""
 def collate(batch):
     _, _, ctx_starts, ctx_ids, ctx_set_idxs, anteced_starts, anteced_ends, \
-        anaphor_starts_in_ctx, anaphor_ids = batch[0]
+        anaphor_starts, anaphor_ids = batch[0]
 
     # transform everything else into tensor form.
     # All following tensors have dim [batch_size,]
