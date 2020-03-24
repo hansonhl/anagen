@@ -103,11 +103,13 @@ class AnagenExample:
         examples in order of decreasing anaphor length; adds padding to context
         and anaphor sequences. """
 class AnagenDataset(Dataset):
-    def __init__(self, jsonlines_file, batch_size, max_num_ctxs_in_batch, max_segment_len=512):
+    def __init__(self, jsonlines_file, batch_size, max_span_width=10,
+                 max_num_ctxs_in_batch=8, max_segment_len=512):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
         self.batch_size = batch_size
+        self.max_span_width = max_span_width
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
         self.max_segment_len = 512
         self.num_examples = 0
@@ -173,6 +175,11 @@ class AnagenDataset(Dataset):
             for anaphor_i in range(len(mentions)):
                 anaphor_start = mentions[anaphor_i][0]
                 anaphor_end = mentions[anaphor_i][1]
+
+                if self.max_span_width \
+                    and anaphor_end - anaphor_start + 1 > self.max_span_width:
+                    continue
+
                 ctx_seg_start_idx, ctx_seg_end_idx = \
                     self._get_ctx_seg_idxs(segment_starts, anaphor_start)
                 if anaphor_i == 0:
@@ -186,7 +193,9 @@ class AnagenDataset(Dataset):
                     for anteced_i in range(anaphor_i):
                         anteced_start = mentions[anteced_i][0]
                         anteced_end = mentions[anteced_i][1]
-                        if anteced_end >= anaphor_start:
+                        if (self.max_span_width \
+                            and anteced_end - anteced_start + 1 > self.max_span_width) \
+                            or anteced_end >= anaphor_start:
                             continue
                         ex = AnagenExample(doc_key,
                                            anteced_start, anteced_end,

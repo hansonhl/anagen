@@ -8,7 +8,7 @@ example_in_path = "data/dev.english.256.onedoc.anagen.jsonlines"
 # use tokenizer from pretrained model already downloaded to my machine
 tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-dataset = AnagenDataset(example_in_path, batch_size=8, max_num_ctxs_in_batch=2)
+dataset = AnagenDataset(example_in_path, batch_size=8, max_span_width=10, max_num_ctxs_in_batch=2)
 
 for i in range(len(dataset)):
     doc_key, ctx_set, ctx_starts, ctx_ids, ctx_set_idxs, \

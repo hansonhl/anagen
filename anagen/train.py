@@ -16,6 +16,7 @@ def parse_train_args(parser):
     parser.add_argument("--eval_jsonlines", type=str)
     parser.add_argument("--train_batch_size", type=int, default=16)
     parser.add_argument("--eval_batch_size", type=int, default=16)
+    parser.add_argument("--max_span_width", type=int, default=10)
     parser.add_argument("--max_num_ctxs_in_batch", type=int, default=8)
     parser.add_argument("--max_segment_len", type=int, default=512)
 
@@ -132,6 +133,7 @@ def train(args, model, train_dataset, eval_dataset):
                         torch.save(model_checkpoint, best_step)
                         best_loss = eval_loss
 
+                    print("  saving latest version of model")
                     latest_save_path = args.model_save_path + "_latest.ckpt"
                     torch.save(model_checkpoint, latest_save_path)
                     del model_checkpoint

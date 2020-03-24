@@ -15,12 +15,14 @@ def main():
 
     train_dataset = AnagenDataset(args.train_jsonlines,
                                   args.train_batch_size,
+                                  args.max_span_width,
                                   args.max_num_ctxs_in_batch,
                                   args.max_segment_len)
 
     if args.eval_jsonlines:
         eval_dataset = AnagenDataset(args.eval_jsonlines,
                                      args.eval_batch_size,
+                                     args.max_span_width,
                                      args.max_num_ctxs_in_batch,
                                      args.max_segment_len)
     else:
