@@ -103,6 +103,7 @@ def main():
         assert args.out_path is not None
 
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+    print(args.device)
 
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)

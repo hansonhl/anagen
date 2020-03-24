@@ -87,7 +87,7 @@ import torch
 #     anaphor_str = " ".join(first_d.tok_str_list[anaphor_span[0]:anaphor_span[1]+1])
 #     print(anteced_str + " " + str(anteced_span) + "; " + anaphor_str + " " + str(anaphor_span))
 
-from dataset import generate_anagen_dataset_from_file
+from tagged_dataset import generate_anagen_dataset_from_file
 example_in_path = "/home/hansonlu/links/data/pp_ontonotes/dev.english.10part.v4_gold_conll"
 example_out_path = "/home/hansonlu/links/data/pp_ontonotes/dev.10part.txt"
 
