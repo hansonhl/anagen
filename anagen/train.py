@@ -2,8 +2,7 @@ import torch
 import logging
 import tqdm
 import time
-from anagen.speaker_model import parse_model_args
-from anagen.dataset import collate, parse_dataset_args
+from anagen.dataset import collate
 from anagen.utils import batch_to_device
 
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
@@ -15,11 +14,18 @@ def parse_train_args(parser):
     # data input
     parser.add_argument("--train_jsonlines", type=str)
     parser.add_argument("--eval_jsonlines", type=str)
-    parse_dataset_args(parser)
+    parser.add_argument("--train_batch_size", type=int, default=16)
+    parser.add_argument("--eval_batch_size", type=int, default=16)
+    parser.add_argument("--max_span_width", type=int, default=10)
+    parser.add_argument("--max_num_ctxs_in_batch", type=int, default=8)
+    parser.add_argument("--max_segment_len", type=int, default=512)
 
     # trained model save/load
     parser.add_argument("--model_load_path", type=str)
     parser.add_argument("--model_save_path", type=str)
+
+    # gpt2 model settings
+    parser.add_argument("--gpt2_model_dir", type=str, default=None)
 
     # training settings
     parser.add_argument("--gpu", action="store_true")
@@ -30,8 +36,12 @@ def parse_train_args(parser):
     parser.add_argument("--log_steps", type=int, default=100)
     parser.add_argument("--eval_and_save_steps", type=int, default=5000)
 
-    # model config
-    parse_model_args(parser)
+    # model settings
+    parser.add_argument("--gpt2_hidden_size", type=int, default=768)
+    parser.add_argument("--stack_start_end_emb", action="store_true")
+    parser.add_argument("--use_metadata", action="store_true")
+    parser.add_argument("--param_init_stdev", type=float, default=0.1)
+    parser.add_argument("--rnn_num_layers", type=int, default=1)
 
     return parser.parse_args()
 
