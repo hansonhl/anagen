@@ -20,7 +20,8 @@ def parse_train_args(parser):
     parser.add_argument("--max_num_ctxs_in_batch", type=int, default=8)
     parser.add_argument("--max_segment_len", type=int, default=512)
 
-    # where to save model
+    # trained model save/load
+    parser.add_argument("--model_load_path", type=str)
     parser.add_argument("--model_save_path", type=str)
 
     # gpt2 model settings
@@ -29,6 +30,7 @@ def parse_train_args(parser):
     # training settings
     parser.add_argument("--gpu", action="store_true")
     parser.add_argument("--random_seed", type=int, default=39393)
+    parser.add_argument("--unfreeze_gpt2", action="store_true")
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--train_epochs", type=int, default=1)
     parser.add_argument("--log_steps", type=int, default=100)
@@ -63,9 +65,23 @@ def train(args, model, train_dataset, eval_dataset):
             args.gradient_accumulation_steps * args.num_train_epochs
     """
     model.to(device)
-    model.freeze_gpt2()
+    if not args.unfreeze_gpt2:
+        model.freeze_gpt2()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    global_step = 0
+
+    if args.model_load_path:
+        # Load in model and optimizer states
+        print("***** Loading model from %s *****" % args.model_load_path)
+        ckpt = torch.load(args.model_load_path)
+        model.load_state_dict(ckpt["model_state_dict"])
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        global_step = ckpt["global_step"]
+
+    return
+
     num_batches = len(train_dataset)
     # start training
     print("***** Running training *****")
@@ -82,7 +98,6 @@ def train(args, model, train_dataset, eval_dataset):
         best_loss = float("inf")
         best_step = 0
 
-    global_step = 0
     total_training_time = 0.0
     for epoch in range(args.train_epochs):
         print("*** Epoch %d ***" % epoch)
