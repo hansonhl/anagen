@@ -42,7 +42,8 @@ class LiteralSpeakerModel(nn.Module):
             param.requires_grad = False
 
     def unfreeze_gpt2(self):
-        pass
+        for param in self.gpt2_model.parameters():
+            param.requires_grad = True
 
     def forward(self, batch):
         input_repr_embs = self.encode(batch) # [batch_size, gpt2_hidden_size * 3]

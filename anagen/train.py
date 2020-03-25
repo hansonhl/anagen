@@ -79,8 +79,6 @@ def train(args, model, train_dataset, eval_dataset):
             args.gradient_accumulation_steps * args.num_train_epochs
     """
     model.to(device)
-    if not args.unfreeze_gpt2:
-        model.freeze_gpt2()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
@@ -96,6 +94,12 @@ def train(args, model, train_dataset, eval_dataset):
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         global_step = ckpt["global_step"]
         print("***** Finished loading model *****")
+
+    if not args.unfreeze_gpt2:
+        model.freeze_gpt2()
+    else:
+        print("Unfreezing gpt2 parameters")
+        model.unfreeze_gpt2()
 
     gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model)
 
