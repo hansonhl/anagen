@@ -51,8 +51,7 @@ def check_state_dict(model, optimizer=None):
     # print(state_dict.keys())
     speaker_state_dict = model.state_dict()
     gpt2_state_dict = model.gpt2_model.state_dict()
-    if optimizer:
-        print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
+        # print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
     print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
     print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
     return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
@@ -99,11 +98,14 @@ def train(args, model, train_dataset, eval_dataset):
     if not args.unfreeze_gpt2:
         model.freeze_gpt2()
     else:
-        print("Unfreezing gpt2 parameters")
+        print("***** Unfreezing gpt2 parameters *****")
         model.unfreeze_gpt2()
-
+    print("***** List of all parameters: *****")
+    for name, param in model.named_parameters():
+        print("  %s %s %s" % ("[GRAD]" if param.requires_grad else "[NONE]", name, param.shape))
+    print("***** End of list *****")
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model)
+    gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model, optimizer)
 
     num_batches = len(train_dataset)
     # start training
