@@ -46,11 +46,13 @@ def parse_train_args(parser):
     return parser.parse_args()
 
 
-def check_state_dict(model):
+def check_state_dict(model, optimizer=None):
     print("****** checking state dict of model ******")
     # print(state_dict.keys())
     speaker_state_dict = model.state_dict()
     gpt2_state_dict = model.gpt2_model.state_dict()
+    if optimizer:
+        print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
     print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
     print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
     return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
@@ -101,7 +103,6 @@ def train(args, model, train_dataset, eval_dataset):
         model.unfreeze_gpt2()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-
     gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model)
 
     num_batches = len(train_dataset)

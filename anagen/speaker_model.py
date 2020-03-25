@@ -37,6 +37,9 @@ class LiteralSpeakerModel(nn.Module):
 
         self.loss_fxn = nn.CrossEntropyLoss()
 
+    # def token_embedding(self, anaphor_ids):
+    #     return self.gpt2_model.wte(anaphor_ids)
+
     def freeze_gpt2(self):
         for param in self.gpt2_model.parameters():
             param.requires_grad = False
