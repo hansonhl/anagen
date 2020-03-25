@@ -142,7 +142,7 @@ def train(args, model, train_dataset, eval_dataset):
 
             loss.backward()
             if global_step % args.log_steps == 0:
-                print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
+                print("sum(gpt2_model.wte.weight.grad)", torch.sum(model.gpt2_model.wte.weight.grad))
             optimizer.step()
             total_training_time += time.time() - start_time
             global_step += 1
