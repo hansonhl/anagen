@@ -46,6 +46,20 @@ def parse_train_args(parser):
     return parser.parse_args()
 
 
+def check_state_dict(model):
+    print("****** checking state dict of model ******")
+    # print(state_dict.keys())
+    speaker_state_dict = model.state_dict()
+    gpt2_state_dict = model.gpt2_model.state_dict()
+    print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
+    return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
+            gpt2_state_dict["wte.weight"][9][:10].tolist(),
+            speaker_state_dict["token_embedding.weight"][9][:10].tolist(),
+            model.null_anteced_emb.data[:10].tolist(),
+            model.hidden_to_logits.weight[0][:10].tolist(),
+            )
+
+
 # based on transformers/run_lm_finetuning
 def train(args, model, train_dataset, eval_dataset):
     device = torch.device("cuda" if args.gpu else "cpu")
@@ -72,6 +86,8 @@ def train(args, model, train_dataset, eval_dataset):
 
     global_step = 0
 
+    gpt_bias1, gpt_wte1, s0_emb1, null_emb1, s0_h2l1 = check_state_dict(model)
+
     if args.model_load_path:
         # Load in model and optimizer states
         print("***** Loading model from %s *****" % args.model_load_path)
@@ -81,6 +97,8 @@ def train(args, model, train_dataset, eval_dataset):
         global_step = ckpt["global_step"]
         print("***** Finished loading model *****")
 
+    gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model)
+
     num_batches = len(train_dataset)
     # start training
     print("***** Running training *****")
@@ -89,8 +107,6 @@ def train(args, model, train_dataset, eval_dataset):
     print("  Batch size = %d" % args.train_batch_size)
     print("  Logging every %d steps" % args.log_steps)
     print("  Evaluating and saving model every %d steps" % args.eval_and_save_steps)
-
-    # TODO: add checkpoint loading functionality
 
     if args.model_save_path:
         # keep track of best loss for early stopping
@@ -152,6 +168,11 @@ def train(args, model, train_dataset, eval_dataset):
                     torch.save(model_checkpoint, latest_save_path)
                     del model_checkpoint
 
+    gpt_bias3, gpt_wte3, s0_emb3, null_emb3, s0_h2l3 = check_state_dict(model)
+    print("compare gpt_bias", gpt_bias1 == gpt_bias3)
+    print("compare gpt_wte", gpt_wte1 == gpt_wte3)
+    print("compare null_emb", null_emb1 == null_emb3)
+    print("compare s0_h2l", s0_h2l1 == s0_h2l3)
 
 def evaluate(args, model, eval_dataset, global_step):
     device = torch.device("cuda" if args.gpu else "cpu")
