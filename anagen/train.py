@@ -81,8 +81,6 @@ def train(args, model, train_dataset, eval_dataset):
     """
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-
     global_step = 0
 
     gpt_bias1, gpt_wte1, s0_emb1, null_emb1, s0_h2l1 = check_state_dict(model)
@@ -101,6 +99,8 @@ def train(args, model, train_dataset, eval_dataset):
     else:
         print("Unfreezing gpt2 parameters")
         model.unfreeze_gpt2()
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model)
 
