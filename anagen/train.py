@@ -51,6 +51,7 @@ def check_state_dict(model):
     # print(state_dict.keys())
     speaker_state_dict = model.state_dict()
     gpt2_state_dict = model.gpt2_model.state_dict()
+    print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
     print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
     return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
             gpt2_state_dict["wte.weight"][9][:10].tolist(),
