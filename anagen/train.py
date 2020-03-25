@@ -127,13 +127,16 @@ def train(args, model, train_dataset, eval_dataset):
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
             batch = batch_to_device(batch, device)
-            model.zero_grad()
             optimizer.zero_grad()
             model.train()
 
             start_time = time.time()
             res_dict = model(batch)
             loss = res_dict["loss"]
+
+            if global_step % args.log_steps == 0:
+                print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
+
 
             loss.backward()
             optimizer.step()
