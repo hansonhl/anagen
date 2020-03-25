@@ -10,20 +10,21 @@ class LiteralSpeakerModel(nn.Module):
     def __init__(self, args):
         super(LiteralSpeakerModel, self).__init__()
         self.device = torch.device("cuda" if args.gpu else "cpu")
+        self.use_metadata = args.use_metadata
+        self.sum_start_end_emb = args.sum_start_end_emb
 
         self.gpt2_hidden_size = args.gpt2_hidden_size
-        self.anteced_emb_size = args.gpt2_hidden_size
+        self.anteced_emb_size = args.gpt2_hidden_size if args.sum_start_end_emb\
+                                else args.gpt2_hidden_size * 2
         self.ctx_emb_size = args.gpt2_hidden_size
         self.rnn_hidden_size = self.anteced_emb_size + self.ctx_emb_size
 
-        self.use_metadata = args.use_metadata
         if args.use_metadata:
             self.rnn_hidden_size += args.anteced_len_emb_size + args.distance_emb_size
 
         self.gpt2_model = GPT2Model.from_pretrained(args.gpt2_model_dir \
             if args.gpt2_model_dir else "gpt2")
 
-        self.token_embedding = self.gpt2_model.wte
         self.vocab_size = self.gpt2_model.wte.num_embeddings
 
         self.rnn = nn.GRU(input_size=args.gpt2_hidden_size,
@@ -45,6 +46,9 @@ class LiteralSpeakerModel(nn.Module):
     def unfreeze_gpt2(self):
         for param in self.gpt2_model.parameters():
             param.requires_grad = True
+
+    def token_embedding(self, anaphor_ids):
+        return self.gpt2_model.wte(anaphor_ids)
 
     def forward(self, batch, verbose=False):
         input_repr_embs = self.encode(batch, verbose) # [batch_size, gpt2_hidden_size * 3]
@@ -91,9 +95,14 @@ class LiteralSpeakerModel(nn.Module):
         # just use emb of one token before anaphor
         # if anaphor has index 0, use null anteced emb as ctx emb
         flat_ctx_ends = flat_idx_offset + anaphor_starts # [batch_size, ]
-        ctx_embs = flat_hidden_states.index_select(0, flat_ctx_ends) # [batch_size, gpt2_hidden_size]
+        ctx_embs = flat_hidden_states.index_select(0, flat_ctx_ends)
+        # [batch_size, gpt2_hidden_size]
 
-        input_embs = torch.cat((anteced_start_embs + anteced_end_embs, ctx_embs), 1) # [batch_size, gpt2_hidden_size * 3]
+        if self.sum_start_end_emb:
+            input_embs = torch.cat((anteced_start_embs + anteced_end_embs, ctx_embs), 1)
+        else:
+            input_embs = torch.cat((anteced_start_embs, anteced_end_embs, ctx_embs), 1)
+        # [batch_size, gpt2_hidden_size * 3]
         return input_embs
 
     def decode(self, ctx_and_anteced_embs, prev_anaphor_ids):

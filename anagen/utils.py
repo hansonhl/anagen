@@ -25,3 +25,21 @@ def batch_to_device(batch, device):
     return batch
 def parse_eval_args(parser):
     return parser.parse_args()
+
+""" check weights to confirm backprop went through """
+def check_state_dict(model, optimizer=None):
+    print("****** checking state dict of model ******")
+    # print(state_dict.keys())
+    speaker_state_dict = model.state_dict()
+    gpt2_state_dict = model.gpt2_model.state_dict()
+        # print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
+
+    print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
+    print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
+    print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
+    return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
+            gpt2_state_dict["wte.weight"][9][:10].tolist(),
+            speaker_state_dict["token_embedding.weight"][9][:10].tolist(),
+            model.null_anteced_emb.data[:10].tolist(),
+            model.hidden_to_logits.weight[0][:10].tolist(),
+            )

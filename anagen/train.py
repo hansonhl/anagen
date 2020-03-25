@@ -34,35 +34,17 @@ def parse_train_args(parser):
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--train_epochs", type=int, default=1)
     parser.add_argument("--log_steps", type=int, default=100)
-    parser.add_argument("--eval_and_save_steps", type=int, default=5000)
+    parser.add_argument("--eval_and_save_by_epoch", action="store_true")
+    parser.add_argument("--eval_and_save_by_steps", type=int)
 
     # model settings
     parser.add_argument("--gpt2_hidden_size", type=int, default=768)
-    parser.add_argument("--stack_start_end_emb", action="store_true")
+    parser.add_argument("--sum_start_end_emb", action="store_true")
     parser.add_argument("--use_metadata", action="store_true")
     parser.add_argument("--param_init_stdev", type=float, default=0.1)
     parser.add_argument("--rnn_num_layers", type=int, default=1)
 
     return parser.parse_args()
-
-
-def check_state_dict(model, optimizer=None):
-    print("****** checking state dict of model ******")
-    # print(state_dict.keys())
-    speaker_state_dict = model.state_dict()
-    gpt2_state_dict = model.gpt2_model.state_dict()
-        # print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
-
-    print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
-    print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
-    print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
-    return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
-            gpt2_state_dict["wte.weight"][9][:10].tolist(),
-            speaker_state_dict["token_embedding.weight"][9][:10].tolist(),
-            model.null_anteced_emb.data[:10].tolist(),
-            model.hidden_to_logits.weight[0][:10].tolist(),
-            )
-
 
 # based on transformers/run_lm_finetuning
 def train(args, model, train_dataset, eval_dataset):
@@ -86,8 +68,6 @@ def train(args, model, train_dataset, eval_dataset):
 
     global_step = 0
 
-    gpt_bias1, gpt_wte1, s0_emb1, null_emb1, s0_h2l1 = check_state_dict(model)
-
     if args.model_load_path:
         # Load in model and optimizer states
         print("***** Loading model from %s *****" % args.model_load_path)
@@ -103,22 +83,19 @@ def train(args, model, train_dataset, eval_dataset):
         print("***** Unfreezing gpt2 parameters *****")
         model.unfreeze_gpt2()
 
-    print("***** List of all parameters: *****")
-    for name, param in model.named_parameters():
-        print("  %s %s %s" % ("[GRAD]" if param.requires_grad else "[NONE]", name, param.shape))
-    print("***** End of list *****")
-
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model, optimizer)
 
     num_batches = len(train_dataset)
     # start training
     print("***** Running training *****")
-    print("  Num examples = %d" % num_batches)
-    print("  Num Epochs = %d" % args.train_epochs)
+    print("  Num epochs = %d" % args.train_epochs)
+    print("  Num batches per epoch = %d" % num_batches)
     print("  Batch size = %d" % args.train_batch_size)
     print("  Logging every %d steps" % args.log_steps)
-    print("  Evaluating and saving model every %d steps" % args.eval_and_save_steps)
+    if args.eval_and_save_by_epoch:
+        print("  Evaluating and saving model at the end of every epoch")
+    if args.eval_and_save_by_steps:
+        print("  Evaluating and saving model every %d steps" % args.eval_and_save_by_steps)
 
     if args.model_save_path:
         # keep track of best loss for early stopping
@@ -134,15 +111,12 @@ def train(args, model, train_dataset, eval_dataset):
             model.train()
 
             start_time = time.time()
-            if global_step % args.log_steps == 0:
-                res_dict = model(batch, verbose=True)
-            else:
-                res_dict = model(batch)
+
+            res_dict = model(batch)
             loss = res_dict["loss"]
 
             loss.backward()
-            if global_step % args.log_steps == 0:
-                print("sum(gpt2_model.wte.weight.grad)", torch.sum(model.gpt2_model.wte.weight.grad))
+
             optimizer.step()
             total_training_time += time.time() - start_time
             global_step += 1
@@ -158,38 +132,38 @@ def train(args, model, train_dataset, eval_dataset):
                 print("  avg time per batch = %.2f, est remaining time = %.2f mins" \
                       % (avg_time_per_batch, estimated_time / 60))
 
-            if global_step % args.eval_and_save_steps == 0:
-                eval_results = evaluate(args, model, eval_dataset, global_step)
-                # TODO: add tensorboard writer functionality
-                eval_loss = eval_results["eval_loss"]
+            if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:
+                best_loss = save_checkpoint(args, epoch, eval_dataset,
+                        best_loss, step, global_step, model, optimizer)
 
-                if args.model_save_path:
-                    model_checkpoint = {
-                        "args": args,
-                        "epoch": epoch,
-                        "eval_loss": eval_loss,
-                        "step_in_epoch": step,
-                        "global_step": global_step,
-                        "model_state_dict": model.state_dict(), # just save everything for now
-                        "optimizer_state_dict": optimizer.state_dict()
-                    }
-                    if eval_loss < best_loss:
-                        best_save_path = args.model_save_path + "_best.ckpt"
-                        print("  current model has best eval loss, saving to %s" % best_save_path)
-                        torch.save(model_checkpoint, best_save_path)
-                        best_loss = eval_loss
+    if args.eval_and_save_by_epoch:
+        best_loss = save_checkpoint(args, epoch, eval_dataset, best_loss, step,
+                                    global_step, model, optimizer)
 
-                    latest_save_path = args.model_save_path + "_latest.ckpt"
-                    print("  saving latest version of model to %s" % latest_save_path)
-                    torch.save(model_checkpoint, latest_save_path)
-                    del model_checkpoint
+def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch,
+                    global_step, model, optimizer):
+    eval_results = evaluate(args, model, eval_dataset, global_step)
+    eval_loss = eval_results["eval_loss"]
+    if args.model_save_path:
+        model_checkpoint = {
+            "args": args,
+            "epoch": epoch,
+            "eval_loss": eval_loss,
+            "step_in_epoch": step_in_epoch,
+            "global_step": global_step,
+            "model_state_dict": model.state_dict(), # just save everything for now
+            "optimizer_state_dict": optimizer.state_dict()
+        }
+        if eval_loss < best_loss:
+            best_save_path = args.model_save_path + "_best.ckpt"
+            print("  current model has best eval loss, saving to %s" % best_save_path)
+            torch.save(model_checkpoint, best_save_path)
 
-    gpt_bias3, gpt_wte3, s0_emb3, null_emb3, s0_h2l3 = check_state_dict(model)
-    print("compare gpt_bias", gpt_bias1 == gpt_bias3)
-    print("compare gpt_wte", gpt_wte1 == gpt_wte3)
-    print("compare s0_emb", s0_emb1 == s0_emb3)
-    print("compare null_emb", null_emb1 == null_emb3)
-    print("compare s0_h2l", s0_h2l1 == s0_h2l3)
+        latest_save_path = args.model_save_path + "_latest.ckpt"
+        print("  saving latest version of model to %s" % latest_save_path)
+        torch.save(model_checkpoint, latest_save_path)
+    best_loss = min(eval_loss, best_loss)
+    return best_loss
 
 def evaluate(args, model, eval_dataset, global_step):
     device = torch.device("cuda" if args.gpu else "cpu")
