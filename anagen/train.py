@@ -134,7 +134,10 @@ def train(args, model, train_dataset, eval_dataset):
             model.train()
 
             start_time = time.time()
-            res_dict = model(batch)
+            if global_step % args.log_steps == 0:
+                res_dict = model(batch, verbose=True)
+            else:
+                res_dict = model(batch)
             loss = res_dict["loss"]
 
             loss.backward()

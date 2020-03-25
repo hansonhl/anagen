@@ -45,10 +45,9 @@ class LiteralSpeakerModel(nn.Module):
     def unfreeze_gpt2(self):
         for param in self.gpt2_model.parameters():
             param.requires_grad = True
-        self.gpt2_model.train()
 
-    def forward(self, batch):
-        input_repr_embs = self.encode(batch) # [batch_size, gpt2_hidden_size * 3]
+    def forward(self, batch, verbose=False):
+        input_repr_embs = self.encode(batch, verbose) # [batch_size, gpt2_hidden_size * 3]
         logits = self.decode(input_repr_embs, batch["anaphor_ids"]) # [batch_size, max_len+1, vocab_size]
 
         return {
@@ -57,7 +56,7 @@ class LiteralSpeakerModel(nn.Module):
             "num_toks": self.num_toks(batch["anaphor_ids_padding_mask"])
         }
 
-    def encode(self, batch):
+    def encode(self, batch, verbose=False):
         ctx_ids = batch["ctx_ids"] # [num_ctx, max_ctx_len]
         ctx_ids_padding_mask = batch["ctx_ids_padding_mask"] # [num_ctx, max_ctx_len]
         ctx_set_idxs = batch["ctx_set_idxs"] # [batch_size,]
@@ -67,6 +66,9 @@ class LiteralSpeakerModel(nn.Module):
 
         gpt2_output = self.gpt2_model(ctx_ids, attention_mask=ctx_ids_padding_mask)
         hidden_states = gpt2_output[0]
+        if verbose:
+            print("hidden_states.shape", hidden_states.shape)
+            print("hidden_states", hidden_states)
         # [num_ctxs, max_ctx_len, gpt2_hidden_size]
 
         # flatten everything and prepend null representation to faciliate index selection
@@ -80,6 +82,7 @@ class LiteralSpeakerModel(nn.Module):
         flat_anteced_start_idxs = flat_idx_offset + anteced_starts + 1 # [batch_size,]
         flat_anteced_end_idxs = flat_idx_offset + anteced_ends + 1 # [batch_size,]
         flat_anteced_start_idxs[anteced_starts == -1] = 0
+        flat_anteced_end_idxs[anteced_ends == -1] = 0
         anteced_start_embs = flat_hidden_states.index_select(0, flat_anteced_start_idxs)
         anteced_end_embs = flat_hidden_states.index_select(0, flat_anteced_end_idxs)
         # [batch_size, gpt2_hidden_size]
