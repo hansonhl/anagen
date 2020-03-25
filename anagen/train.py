@@ -66,16 +66,11 @@ def train(args, model, train_dataset, eval_dataset):
     """
     model.to(device)
 
-    global_step = 0
-
     if args.model_load_path:
         # Load in model and optimizer states
         print("***** Loading model from %s *****" % args.model_load_path)
         ckpt = torch.load(args.model_load_path)
         model.load_state_dict(ckpt["model_state_dict"])
-        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
-        global_step = ckpt["global_step"]
-        print("***** Finished loading model *****")
 
     if not args.unfreeze_gpt2:
         model.freeze_gpt2()
@@ -84,6 +79,12 @@ def train(args, model, train_dataset, eval_dataset):
         model.unfreeze_gpt2()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    global_step = 0
+
+    if args.model_load_path:
+        print("***** Loading state of optimizer *****")
+        global_step = ckpt["global_step"]
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 
     num_batches = len(train_dataset)
     # start training
