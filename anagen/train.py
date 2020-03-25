@@ -137,7 +137,6 @@ def train(args, model, train_dataset, eval_dataset):
             if global_step % args.log_steps == 0:
                 print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
 
-
             loss.backward()
             optimizer.step()
             total_training_time += time.time() - start_time
