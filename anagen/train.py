@@ -52,6 +52,7 @@ def check_state_dict(model, optimizer=None):
     speaker_state_dict = model.state_dict()
     gpt2_state_dict = model.gpt2_model.state_dict()
         # print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
+
     print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
     print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
     print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
@@ -101,10 +102,12 @@ def train(args, model, train_dataset, eval_dataset):
     else:
         print("***** Unfreezing gpt2 parameters *****")
         model.unfreeze_gpt2()
+
     print("***** List of all parameters: *****")
     for name, param in model.named_parameters():
         print("  %s %s %s" % ("[GRAD]" if param.requires_grad else "[NONE]", name, param.shape))
     print("***** End of list *****")
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     gpt_bias2, gpt_wte2, s0_emb2, null_emb2, s0_h2l2 = check_state_dict(model, optimizer)
 
@@ -127,17 +130,16 @@ def train(args, model, train_dataset, eval_dataset):
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
             batch = batch_to_device(batch, device)
-            optimizer.zero_grad()
+            model.zero_grad()
             model.train()
 
             start_time = time.time()
             res_dict = model(batch)
             loss = res_dict["loss"]
 
+            loss.backward()
             if global_step % args.log_steps == 0:
                 print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
-
-            loss.backward()
             optimizer.step()
             total_training_time += time.time() - start_time
             global_step += 1
