@@ -54,6 +54,7 @@ def check_state_dict(model, optimizer=None):
         # print("optimizer.state_dict()['param_groups']", optimizer.state_dict()['param_groups'])
     print("gpt2_model.wte.requires_grad", model.gpt2_model.wte.weight.requires_grad)
     print("null_anteced_emb.requires_grad", model.null_anteced_emb.requires_grad)
+    print("gpt2_model.wte.weight.grad", model.gpt2_model.wte.weight.grad)
     return (gpt2_state_dict["h.0.attn.bias"][0][0][0][:10].tolist(),
             gpt2_state_dict["wte.weight"][9][:10].tolist(),
             speaker_state_dict["token_embedding.weight"][9][:10].tolist(),
