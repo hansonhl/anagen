@@ -175,6 +175,7 @@ def train(args, model, train_dataset, eval_dataset):
     gpt_bias3, gpt_wte3, s0_emb3, null_emb3, s0_h2l3 = check_state_dict(model)
     print("compare gpt_bias", gpt_bias1 == gpt_bias3)
     print("compare gpt_wte", gpt_wte1 == gpt_wte3)
+    print("compare s0_emb", s0_emb1 == s0_emb3)
     print("compare null_emb", null_emb1 == null_emb3)
     print("compare s0_h2l", s0_h2l1 == s0_h2l3)
 
