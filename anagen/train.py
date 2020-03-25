@@ -79,8 +79,7 @@ def train(args, model, train_dataset, eval_dataset):
         model.load_state_dict(ckpt["model_state_dict"])
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         global_step = ckpt["global_step"]
-
-    return
+        print("***** Finished loading model *****")
 
     num_batches = len(train_dataset)
     # start training
@@ -128,7 +127,7 @@ def train(args, model, train_dataset, eval_dataset):
                       % (avg_time_per_batch, estimated_time / 60))
 
             if global_step % args.eval_and_save_steps == 0:
-                eval_results = evaluate(args, model, eval_dataset)
+                eval_results = evaluate(args, model, eval_dataset, global_step)
                 # TODO: add tensorboard writer functionality
                 eval_loss = eval_results["eval_loss"]
 
@@ -154,14 +153,14 @@ def train(args, model, train_dataset, eval_dataset):
                     del model_checkpoint
 
 
-def evaluate(args, model, eval_dataset):
+def evaluate(args, model, eval_dataset, global_step):
     device = torch.device("cuda" if args.gpu else "cpu")
     eval_sampler = SequentialSampler(eval_dataset)
     eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler,
                                  batch_size=DEFAULT_TRAIN_BATCH_SIZE,
                                  collate_fn=collate)
 
-    print("***** Running evaluation *****")
+    print("***** Running evaluation at step %d ****" % global_step)
     print("  Num examples = %d" % len(eval_dataset))
     print("  Batch size = %d" % args.eval_batch_size)
 
@@ -182,7 +181,7 @@ def evaluate(args, model, eval_dataset):
     eval_loss = eval_loss / num_toks
     perplexity = torch.exp(torch.tensor(eval_loss))
 
-    print("***** Eval results *****")
+    print("***** Eval results at step %d  *****" % global_step)
     print("  eval_loss = %.6f" % eval_loss)
     print("  perplexity = %.6f" % perplexity)
     return {
