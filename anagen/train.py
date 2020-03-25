@@ -133,12 +133,12 @@ def train(args, model, train_dataset, eval_dataset):
                       % (avg_time_per_batch, estimated_time / 60))
 
             if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:
-                best_loss = save_checkpoint(args, epoch, eval_dataset,
-                        best_loss, step, global_step, model, optimizer)
+                best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
+                    best_loss, step, global_step, model, optimizer)
 
-    if args.eval_and_save_by_epoch:
-        best_loss = save_checkpoint(args, epoch, eval_dataset, best_loss, step,
-                                    global_step, model, optimizer)
+        if args.eval_and_save_by_epoch:
+            best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
+                best_loss, step, global_step, model, optimizer)
 
 def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch,
                     global_step, model, optimizer):

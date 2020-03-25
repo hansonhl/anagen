@@ -8,5 +8,6 @@ python run_train.py \
     --max_num_ctxs_in_batch 1 \
     --log_steps 5 \
     --train_epochs 5 \
+    --sum_start_end_emb \
     --model_save_path output/test_model_save \
     --eval_and_save_by_epoch
