@@ -104,6 +104,7 @@ def train(args, model, train_dataset, eval_dataset):
         best_step = 0
 
     total_training_time = 0.0
+    training_steps_in_this_session = 0
     for epoch in range(args.train_epochs):
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
@@ -121,16 +122,17 @@ def train(args, model, train_dataset, eval_dataset):
             optimizer.step()
             total_training_time += time.time() - start_time
             global_step += 1
+            training_steps_in_this_session += 1
 
             loss = loss.item()
             del res_dict
 
             if global_step % args.log_steps == 0:
-                avg_time_per_batch = total_training_time / global_step
+                avg_time_per_batch = total_training_time / training_steps_in_this_session
                 estimated_time = (num_batches - (step+1)) * avg_time_per_batch
                 print("  step %d/%d, global_step %d, batch loss = %.6f" \
                       % (step+1, num_batches, global_step, loss))
-                print("  avg time per batch = %.2f, est remaining time = %.2f mins" \
+                print("  avg time per batch = %.2f, est %.2f mins left for this batch" \
                       % (avg_time_per_batch, estimated_time / 60))
 
             if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:
@@ -160,9 +162,9 @@ def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch
             print("  current model has best eval loss, saving to %s" % best_save_path)
             torch.save(model_checkpoint, best_save_path)
 
-        latest_save_path = args.model_save_path + "_latest.ckpt"
-        print("  saving latest version of model to %s" % latest_save_path)
-        torch.save(model_checkpoint, latest_save_path)
+        # latest_save_path = args.model_save_path + "_latest.ckpt"
+        # print("  saving latest version of model to %s" % latest_save_path)
+        # torch.save(model_checkpoint, latest_save_path)
     best_loss = min(eval_loss, best_loss)
     return best_loss
 
