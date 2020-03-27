@@ -1,7 +1,7 @@
 import torch
 import json
 import numpy as np
-from anagen.utils import flatten
+from anagen.utils import flatten, combine_subtokens
 from torch.utils.data import Dataset
 from transformers import GPT2Tokenizer
 
@@ -50,17 +50,8 @@ class AnagenDocument:
         span_toks = self.segment_toks[in_segment][in_seg_start:in_seg_end+1]
         subtoken_map = self.subtoken_map[global_start:global_end+1]
 
-        res = []
-        prev_x = -1
-        curr_word = ""
-        for tok, x in zip(span_toks, subtoken_map):
-            if prev_x != x and prev_x != -1:
-                res.append(curr_word)
-                curr_word = ""
-            curr_word += tok
-            prev_x = x
-        if curr_word != "":
-            res.append(curr_word)
+        res = combine_subtokens(span_toks, subtoken_map)
+
         if output_str:
             return " ".join(res)
         else:
@@ -103,7 +94,7 @@ class AnagenExample:
         examples in order of decreasing anaphor length; adds padding to context
         and anaphor sequences. """
 class AnagenDataset(Dataset):
-    def __init__(self, jsonlines_file, batch_size, max_span_width=10,
+    def __init__(self, jsonlines_file=None, batch_size=32, max_span_width=10,
                  max_num_ctxs_in_batch=8, max_segment_len=512):
         self.documents = {}
         self.docs_to_examples = {}
@@ -116,21 +107,21 @@ class AnagenDataset(Dataset):
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
         # just use print for now
-        print("Initializing dataset from %s" % jsonlines_file)
+        if jsonlines_file:
+            print("Initializing dataset from %s" % jsonlines_file)
+            with open(jsonlines_file, "r") as f:
+                for line in f:
+                    self._process_jsonline(line)
 
-        with open(jsonlines_file, "r") as f:
-            for line in f:
-                self._process_jsonline(line)
+            print("Obtained %d examples in total" % self.num_examples)
+            print("Compiling batches, batch size %d..." % self.batch_size)
+            self._finalize_batches()
+            print("Compiled %d batches." % len(self.batches))
 
-        print("Obtained %d examples in total" % self.num_examples)
-        print("Compiling batches, batch size %d..." % self.batch_size)
-        self._finalize_batches()
-        print("Compiled %d batches." % len(self.batches))
-
-        num_examples_in_batches = 0
-        for b in self.batches:
-            num_examples_in_batches += len(b[2])
-        print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
+            num_examples_in_batches = 0
+            for b in self.batches:
+                num_examples_in_batches += len(b[2])
+            print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
 
     """ Get the tokens of a span in a given document.
         See definition in AnagenDocument.decode()"""
@@ -181,7 +172,7 @@ class AnagenDataset(Dataset):
                     continue
 
                 ctx_seg_start_idx, ctx_seg_end_idx = \
-                    self._get_ctx_seg_idxs(segment_starts, anaphor_start)
+                    self.get_ctx_seg_idxs(segment_starts, anaphor_start)
                 if anaphor_i == 0:
                     # first mention
                     ex = AnagenExample(doc_key,
@@ -208,7 +199,7 @@ class AnagenDataset(Dataset):
 
 
     """ Determine the start of the context"""
-    def _get_ctx_seg_idxs(self, segment_starts, anaphor_start):
+    def get_ctx_seg_idxs(self, segment_starts, anaphor_start):
         ctx_seg_start_idx = np.argmax(anaphor_start - segment_starts <= self.max_segment_len)
         ctx_seg_end_idx = np.argmax(segment_starts > anaphor_start) - 1
         return ctx_seg_start_idx, ctx_seg_end_idx

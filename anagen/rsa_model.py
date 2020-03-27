@@ -2,21 +2,20 @@ import torch
 import numpy as np
 import logging
 import tqdm
-from anagen.dataset import GPT2_EOS_TOKEN_ID
+
+from anagen.utils import combine_subtokens, batch_to_device
+from anagen.dataset import AnagenDataset, AnagenDocument, AnagenExample, collate, GPT2_EOS_TOKEN_ID
+from anagen.speaker_model import RNNSpeakerModel
 from transformers import AnagenGPT2LMHeadModel, GPT2Tokenizer
+from torch.utils.data import DataLoader, SequentialSampler, RandomSampler
+
+
+MAX_SPAN_WIDTH=10
 
 class CorefRSAModel:
-    def __init__(self, model_dir, device, max_segment_len, anteced_top_k, logger=None):
-        self.tokenizer = GPT2Tokenizer.from_pretrained(model_dir)
-        model = AnagenGPT2LMHeadModel.from_pretrained(model_dir)
-        model.to(device)
-        model.eval()
-        self.model = model
-        self.device = device
-        self.max_segment_len = max_segment_len
-        self.s0_max_sequence_len = 1024
+    def __init__(self, anteced_top_k, logger=None):
         self.anteced_top_k = anteced_top_k
-        self.logger = logger
+        self.logger=logger
 
     def _log_debug(self, msg):
         if self.logger is not None:
@@ -29,6 +28,16 @@ class CorefRSAModel:
         else:
             print(msg, *args)
 
+    def top_k_idxs_along_axis1(self, a):
+        idxs = np.argpartition(a, -self.anteced_top_k, axis=1)[:,-self.anteced_top_k:]
+        return idxs
+
+    def flatten_sentences(self, sentences):
+        res = []
+        for s in sentences:
+            res += s
+        return res
+
     def get_sentence_starts(self, sentence_map):
         starts = [0]
         curr = 0
@@ -39,11 +48,162 @@ class CorefRSAModel:
         starts = np.array(starts)
         return starts
 
-    def flatten_sentences(self, sentences):
-        res = []
-        for s in sentences:
-            res += s
-        return res
+    def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores):
+        raise NotImplementedError()
+
+
+class RNNSpeakerRSAModel(CorefRSAModel):
+    def __init__(self, model_dir, batch_size, max_segment_len, anteced_top_k,
+                 max_num_ctxs_in_batch, device, logger=None):
+        super(RNNSpeakerRSAModel, self).__init__(anteced_top_k, logger)
+        self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+        self.s0_model = RNNSpeakerModel.from_checkpoint(model_dir)
+        self.batch_size = batch_size
+        self.max_segment_len = max_segment_len
+        self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
+        self.device = device
+
+        self.s0_model.to(device)
+
+    def retokenize(self, orig_words):
+        word_idx = 0
+        subtok_idx = 0
+        gpt_toks = []
+        gpt_subtok_to_word_map = []
+        gpt_word_to_subtok_map = []
+        for word in orig_words:
+            subtokens = self.tokenizer.tokenize(word)
+            gpt_word_to_subtok_map.append(subtok_idx)
+            for subtoken in subtokens:
+                gpt_toks.append(subtoken)
+                gpt_subtok_to_word_map.append(word_idx)
+                subtok_idx += 1
+            word_idx += 1
+        return gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_map
+
+
+    def l1(self, example, top_span_starts, top_span_ends, top_antecedents,
+           top_antecedent_scores):
+        # Series of tokenization and data preprocessing similar to AnagenDataset
+        self._log_debug("********** Running l1 ***********")
+
+        # initialize dataset on this document, use dataset object later to get
+        # input into s0.
+        dataset = AnagenDataset(jsonlines_file=None, batch_size=self.batch_size,
+                                max_span_width=MAX_SPAN_WIDTH,
+                                max_num_ctxs_in_batch=self.max_num_ctxs_in_batch,
+                                max_segment_len=self.max_segment_len)
+
+        # set up tokenization transform from bert to gpt
+        bert_toks = self.flatten_sentences(example["sentences"])
+        bert_subtok_to_word_map = example["subtoken_map"]
+        orig_words = combine_subtokens(bert_toks, bert_subtok_to_word_map, is_bert=True)
+        gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_map = self.retokenize(orig_words)
+        bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
+        gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
+        gpt_word_to_subtok_map = np.array(gpt_word_to_subtok_map)
+        print("bert_subtok_to_word_map.shape", bert_subtok_to_word_map.shape)
+        print("gpt_subtok_to_word_map.shape", gpt_subtok_to_word_map.shape)
+        print("gpt_word_to_subtok_map.shape", gpt_word_to_subtok_map.shape)
+
+        # get starting positions of segments
+        bert_segment_lens = np.array([0] + [len(s) for s in example["sentences"]][:-1])
+        bert_segment_starts = np.cumsum(bert_segment_lens)
+        word_segment_starts = bert_subtok_to_word_map[bert_segment_starts]
+        gpt_segment_starts = gpt_word_to_subtok_map[word_segment_starts]
+        gpt_segment_starts = np.append(gpt_segment_starts, len(gpt_toks))
+
+        # prepare document and add to dataset
+        doc_key = example["doc_key"]
+        speakers = None
+        segments = []
+        for i in range(len(gpt_segment_starts)-1):
+            ctx_start, ctx_end = gpt_segment_starts[i], gpt_segment_starts[i+1]
+            segments.append(list(gpt_toks)[ctx_start:ctx_end])
+        document = AnagenDocument(doc_key, segments, gpt_segment_starts,
+                                  speakers, gpt_subtok_to_word_map, self.tokenizer)
+        dataset.documents[doc_key] = document
+
+        # Extract candidates given l0 probabilities: get top k antecedents
+        all_anteced_arr_idxs = self.top_k_idxs_along_axis1(top_antecedent_scores)
+        # get span indeces for each one, null anteced has span idx -1.
+        all_anteced_span_idxs = np.where(all_anteced_arr_idxs != 0,
+            np.take_along_axis(top_antecedents, all_anteced_arr_idxs-1, axis=1), -1)
+
+        # transform starts and ends
+        gpt_span_starts = gpt_word_to_subtok_map[bert_subtok_to_word_map[top_span_starts]]
+        gpt_span_ends = gpt_word_to_subtok_map[bert_subtok_to_word_map[top_span_ends]]
+
+        # create examples to add to dataset, logic similar to
+        # dataset._process_jsonline() and GPTSpeakerRSAModel.get_s0_input()
+        valid_map = []
+        examples = []
+        for anaphor_span_idx in range(len(gpt_span_starts)):
+            anaphor_start = gpt_span_starts[anaphor_span_idx]
+            anaphor_end = gpt_span_ends[anaphor_span_idx]
+            for anteced_span_idx in all_anteced_span_idxs[anaphor_span_idx]:
+                if anteced_span_idx >= anaphor_span_idx:
+                    valid_map.append(False)
+                    continue
+                ctx_seg_start_idx, ctx_seg_end_idx = \
+                    dataset.get_ctx_seg_idxs(gpt_segment_starts, anaphor_start)
+                if anteced_span_idx >= 0:
+                    anteced_start = gpt_span_starts[anteced_span_idx]
+                    anteced_end = gpt_span_ends[anteced_span_idx]
+
+                    if anteced_end >= anaphor_start:
+                        valid_map.append(False)
+                        continue
+                    ex = AnagenExample(doc_key, anteced_start, anteced_end,
+                                       anaphor_start, anaphor_end,
+                                       ctx_seg_start_idx, ctx_seg_end_idx)
+                else:
+                    # null antecedent
+                    ex = AnagenExample(doc_key, -1, -1,
+                                       anaphor_start, anaphor_end,
+                                       ctx_seg_start_idx, ctx_seg_end_idx)
+                examples.append(ex)
+                valid_map.append(True)
+        dataset.docs_to_examples[doc_key] = examples
+        dataset.num_examples = len(examples)
+
+        # finish up dataset
+        dataset._finalize_batches()
+
+        self.s0(dataset)
+
+    def s0(self, s0_input):
+        self._log_debug("  Running S0 on %d batches" % len(s0_input))
+        device = self.device
+        sampler = SequentialSampler(s0_input)
+        dataloader = DataLoader(s0_input, sampler=sampler, batch_size=1,
+                                collate_fn=collate)
+        self.s0_model.eval()
+
+        for batch in dataloader:
+            with torch.no_grad():
+                batch = batch_to_device(batch, device)
+                res_dict = self.s0_model(batch)
+                scores = res_dict["logits"]
+                print(scores.shape)
+
+
+
+
+
+class GPTSpeakerRSAModel(CorefRSAModel):
+    def __init__(self, model_dir, max_segment_len, anteced_top_k, device, logger=None):
+        super(GPTSpeakerRSAModel, self).__init__(anteced_top_k, logger)
+        self.tokenizer = GPT2Tokenizer.from_pretrained(model_dir)
+        model = AnagenGPT2LMHeadModel.from_pretrained(model_dir)
+        model.to(device)
+        model.eval()
+        self.model = model
+        self.device = device
+        self.max_segment_len = max_segment_len
+        self.s0_max_sequence_len = 1024
+        self.anteced_top_k = anteced_top_k
+        self.logger = logger
 
     def get_ctx_start(self, sentence_starts, anaphor_start, anteced_start):
         anaphor_sent_idx = np.argmax(sentence_starts > anaphor_start) - 1
@@ -58,7 +218,7 @@ class CorefRSAModel:
             ctx_start_sent_idx = anteced_sent_idx
         return sentence_starts[ctx_start_sent_idx]
 
-    def convert_tokens_to_string(self, tokens, is_ctx=True):
+    def convert_tokens_to_string(self, tokens, append_tag=None):
         # filter [CLS] and [SEP], merge tokens prefixed by ##.
         tokens = list(filter(lambda x: x != "[CLS]" and x != "[SEP]", tokens))
 
@@ -67,12 +227,8 @@ class CorefRSAModel:
                  .replace(" [CLS] ", " ") \
                  .replace(" [SEP] ", " ") \
                  .strip()
-        res += " <anaphor>" if is_ctx else " </anteced>"
+        res += append_tag
         return res
-
-    def top_k_idxs_along_axis1(self, a):
-        idxs = np.argpartition(a, -self.anteced_top_k, axis=1)[:,-self.anteced_top_k:]
-        return idxs
 
     def get_single_l1_score(self, input_str, anaphor_str):
         # based off of anagen/evaluate.py
@@ -86,6 +242,88 @@ class CorefRSAModel:
             outputs = self.model(**inputs)
             self._log_debug(outputs[0].shape)
             next_token_logits = outputs[0][-1, :]
+
+    def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores):
+        # TODO: apply scores from s0 to top_antecedent_scores
+        self._log_debug("********** Running l1 ***********")
+        # get top k antecedents
+        all_anteced_arr_idxs = self.top_k_idxs_along_axis1(top_antecedent_scores)
+        # get span indeces for each one, null anteced has span idx -1.
+        all_anteced_span_idxs = np.where(all_anteced_arr_idxs != 0,
+            np.take_along_axis(top_antecedents, all_anteced_arr_idxs-1, axis=1), -1)
+
+        # get bert-style string tokens in one-dim list
+        raw_bert_toks = self.flatten_sentences(example["sentences"])
+        # get starting positions of sentences
+        sentence_starts = self.get_sentence_starts(example["sentence_map"])
+
+        for anaphor_span_idx in range(top_antecedents.shape[0]):
+            anaphor_start = top_span_starts[anaphor_span_idx]
+            anaphor_end = top_span_ends[anaphor_span_idx]
+            anteced_arr_idxs = all_anteced_arr_idxs[anaphor_span_idx]
+            anteced_span_idxs = all_anteced_span_idxs[anaphor_span_idx]
+            anaphor_toks = raw_bert_toks[anaphor_start:anaphor_end+1]
+
+            # valid mask, may be optimized out of the for loop
+            anteced_valid_mask = anteced_span_idxs < anaphor_span_idx
+            anteced_valid_arr_idxs = anteced_arr_idxs[anteced_valid_mask]
+
+            s0_input = self.get_s0_input(anaphor_toks, anaphor_span_idx,
+                                         anaphor_start, anaphor_end,
+                                         anteced_span_idxs,
+                                         top_span_starts, top_span_ends,
+                                         sentence_starts, raw_bert_toks)
+
+            # feed into GPT model to get probabilities
+            scores = self.s0(s0_input) #[batch]
+            top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
+
+        return top_antecedent_scores
+
+    def get_s0_input(anaphor_toks, anaphor_span_idx,
+                     anaphor_start, anaphor_end, anteced_span_idxs,
+                     top_span_starts, top_span_ends,
+                     sentence_starts, raw_bert_toks):
+        anaphor_str = self.convert_tokens_to_string(anaphor_toks, append_tag=" </anaphor>")
+        all_input_strs = []
+        # the following are for debug:
+        all_anteced_valid_span_idxs = []
+        all_anteced_starts = []
+        all_anteced_strs = []
+        for anteced_span_idx in anteced_span_idxs:
+            if anteced_span_idx >= anaphor_span_idx:
+                anteced_start = int(top_span_starts[anteced_span_idx])
+                anteced_end = int(top_span_ends[anteced_span_idx])
+                # self._log_debug("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+                continue
+            elif anteced_span_idx >= 0:
+                # assume arr idx is the correct ordering of spans start token, and then by length
+                anteced_start = int(top_span_starts[anteced_span_idx])
+                anteced_end = int(top_span_ends[anteced_span_idx])
+                ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, anteced_start)
+                # self._log_debug("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+                all_anteced_valid_span_idxs.append(anteced_span_idx)
+                all_anteced_starts.append(anteced_start)
+                all_anteced_strs.append(" ".join(raw_bert_toks[anteced_start:anteced_end+1]))
+            else:
+                ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, None)
+                all_anteced_valid_span_idxs.append(-1)
+                all_anteced_starts.append(-1)
+                all_anteced_strs.append("<Null anteced>")
+                # self._log_debug("  Null anteced")
+
+            ctx_tokens = raw_bert_toks[ctx_start:anaphor_start]
+
+            if anteced_span_idx >= 0 and anteced_span_idx < anaphor_span_idx \
+                and anteced_end < anaphor_start:
+                # ignore nested anaphors, treat them as null antecedent
+                ctx_tokens.insert(anteced_start - ctx_start, "<anteced>")
+                ctx_tokens.insert(anteced_end - ctx_start + 2, "</anteced>")
+
+            input_str = self.convert_tokens_to_string(ctx_tokens, append_tag=" <anaphor>")
+            all_input_strs.append(input_str)
+
+        return anaphor_str, all_input_strs
 
     def prepare_batch(self, context_strs, anaphor_str):
         anaphor_toks = self.tokenizer.encode(anaphor_str)
@@ -114,7 +352,8 @@ class CorefRSAModel:
 
         return padded, padding_mask, anaphor_mask, anaphor_toks, lengths, scramble_idxs
 
-    def get_s0_scores(self, context_strs, anaphor_str):
+    def s0(self, s0_input):
+        anaphor_str, context_strs = s0_input
         with torch.no_grad():
             batch, attention_mask, anaphor_mask, anaphor_toks, lengths, scramble_idxs \
                 = self.prepare_batch(context_strs, anaphor_str)
@@ -155,112 +394,115 @@ class CorefRSAModel:
             # self._log_debug("check flat_anaphor_idxs.shape, expected [%d], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_idxs.shape))
             # self._log_debug("check flat_anaphor_logits.shape, expected [%d,vocab], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_logits.shape))
 
-    def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores):
-        # TODO: apply scores from s0 to top_antecedent_scores
-        self._log_debug("********** Running l1 ***********")
-        # get top k antecedents
-        all_anteced_arr_idxs = self.top_k_idxs_along_axis1(top_antecedent_scores)
-        # get span indeces for each one, null anteced has span idx -1.
-        all_anteced_span_idxs = np.where(all_anteced_arr_idxs != 0,
-            np.take_along_axis(top_antecedents, all_anteced_arr_idxs-1, axis=1), -1)
 
-        # get bert-style string tokens in one-dim list
-        raw_bert_toks = self.flatten_sentences(example["sentences"])
-        # get starting positions of sentences
-        sentence_starts = self.get_sentence_starts(example["sentence_map"])
 
-        for anaphor_span_idx in range(top_antecedents.shape[0]):
-            anaphor_start = top_span_starts[anaphor_span_idx]
-            anaphor_end = top_span_ends[anaphor_span_idx]
-            anteced_arr_idxs = all_anteced_arr_idxs[anaphor_span_idx]
-            anteced_span_idxs = all_anteced_span_idxs[anaphor_span_idx]
-            anaphor_toks = raw_bert_toks[anaphor_start:anaphor_end+1]
-            anaphor_str = self.convert_tokens_to_string(anaphor_toks, is_ctx=False)
-
-            # valid mask, may be optimized out of the for loop
-            anteced_valid_mask = anteced_span_idxs < anaphor_span_idx
-            anteced_valid_arr_idxs = anteced_arr_idxs[anteced_valid_mask]
-
-            all_input_strs = [] # [batch]
-
-            # the following are for debug:
-            all_anteced_valid_span_idxs = []
-            all_anteced_starts = []
-            all_anteced_strs = []
-            for anteced_span_idx in anteced_span_idxs:
-                if anteced_span_idx >= anaphor_span_idx:
-                    anteced_start = int(top_span_starts[anteced_span_idx])
-                    anteced_end = int(top_span_ends[anteced_span_idx])
-                    # self._log_debug("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
-                    continue
-                elif anteced_span_idx >= 0:
-                    # assume arr idx is the correct ordering of spans start token, and then by length
-                    anteced_start = int(top_span_starts[anteced_span_idx])
-                    anteced_end = int(top_span_ends[anteced_span_idx])
-                    ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, anteced_start)
-                    # self._log_debug("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
-                    all_anteced_valid_span_idxs.append(anteced_span_idx)
-                    all_anteced_starts.append(anteced_start)
-                    all_anteced_strs.append(" ".join(raw_bert_toks[anteced_start:anteced_end+1]))
-                else:
-                    ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, None)
-                    all_anteced_valid_span_idxs.append(-1)
-                    all_anteced_starts.append(-1)
-                    all_anteced_strs.append("<Null anteced>")
-                    # self._log_debug("  Null anteced")
-
-                ctx_tokens = raw_bert_toks[ctx_start:anaphor_start]
-
-                if anteced_span_idx >= 0 and anteced_span_idx < anaphor_span_idx \
-                    and anteced_end < anaphor_start:
-                    # ignore nested anaphors, treat them as null antecedent
-                    ctx_tokens.insert(anteced_start - ctx_start, "<anteced>")
-                    ctx_tokens.insert(anteced_end - ctx_start + 2, "</anteced>")
-
-                input_str = self.convert_tokens_to_string(ctx_tokens)
-                all_input_strs.append(input_str)
-
-            # feed into GPT model to get probabilities
-            scores = self.get_s0_scores(all_input_strs, anaphor_str) #[batch]
-            top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
-
-            # debug to see scores
-            # self._log_debug("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
-            # for i, (input_str, span_idx, start_idx, antecstr) in \
-            #     enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
-            #     score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
-            #     score_after = score_before + scores[i]
-            #     self._log_debug("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
-            #         span_idx, start_idx, antecstr,
-            #         scores[i], score_before, score_after))
-
-            # old_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs]
-            # prev_best_anteced_i = np.argmax(old_scores)
-            # new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
-            # new_best_anteced_i = np.argmax(new_scores)
-            # if new_best_anteced_i != prev_best_anteced_i:
-            #     self._log_debug("*******************")
-            #     self._log_debug("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
-            #     self._log_debug("  BEST ANTECED CHANGED:")
-            #     self._log_debug("  stats: span_idx (start) str: s0_score/score_before/score_after")
-            #     self._log_debug("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
-            #         all_anteced_valid_span_idxs[prev_best_anteced_i],
-            #         all_anteced_starts[prev_best_anteced_i],
-            #         old_scores[prev_best_anteced_i],
-            #         scores[prev_best_anteced_i],
-            #         new_scores[prev_best_anteced_i],
-            #         all_anteced_strs[prev_best_anteced_i],
-            #         all_input_strs[prev_best_anteced_i]
-            #     ))
-            #     self._log_debug("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
-            #         all_anteced_valid_span_idxs[new_best_anteced_i],
-            #         all_anteced_starts[new_best_anteced_i],
-            #         old_scores[new_best_anteced_i],
-            #         scores[new_best_anteced_i],
-            #         new_scores[new_best_anteced_i],
-            #         all_anteced_strs[new_best_anteced_i],
-            #         all_input_strs[new_best_anteced_i]
-            #     ))
+        # old L1 fxn
+    # def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores):
+    #     # TODO: apply scores from s0 to top_antecedent_scores
+    #     self._log_debug("********** Running l1 ***********")
+    #     # get top k antecedents
+    #     all_anteced_arr_idxs = self.top_k_idxs_along_axis1(top_antecedent_scores)
+    #     # get span indeces for each one, null anteced has span idx -1.
+    #     all_anteced_span_idxs = np.where(all_anteced_arr_idxs != 0,
+    #         np.take_along_axis(top_antecedents, all_anteced_arr_idxs-1, axis=1), -1)
+    #
+    #     # get bert-style string tokens in one-dim list
+    #     raw_bert_toks = self.flatten_sentences(example["sentences"])
+    #     # get starting positions of sentences
+    #     sentence_starts = self.get_sentence_starts(example["sentence_map"])
+    #
+    #     for anaphor_span_idx in range(top_antecedents.shape[0]):
+    #         anaphor_start = top_span_starts[anaphor_span_idx]
+    #         anaphor_end = top_span_ends[anaphor_span_idx]
+    #         anteced_arr_idxs = all_anteced_arr_idxs[anaphor_span_idx]
+    #         anteced_span_idxs = all_anteced_span_idxs[anaphor_span_idx]
+    #         anaphor_toks = raw_bert_toks[anaphor_start:anaphor_end+1]
+    #         anaphor_str = self.convert_tokens_to_string(anaphor_toks, append_tag=" </anaphor>")
+    #
+    #         # valid mask, may be optimized out of the for loop
+    #         anteced_valid_mask = anteced_span_idxs < anaphor_span_idx
+    #         anteced_valid_arr_idxs = anteced_arr_idxs[anteced_valid_mask]
+    #
+    #         all_input_strs = [] # [batch]
+    #
+    #         # the following are for debug:
+    #         all_anteced_valid_span_idxs = []
+    #         all_anteced_starts = []
+    #         all_anteced_strs = []
+    #         for anteced_span_idx in anteced_span_idxs:
+    #             if anteced_span_idx >= anaphor_span_idx:
+    #                 anteced_start = int(top_span_starts[anteced_span_idx])
+    #                 anteced_end = int(top_span_ends[anteced_span_idx])
+    #                 # self._log_debug("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+    #                 continue
+    #             elif anteced_span_idx >= 0:
+    #                 # assume arr idx is the correct ordering of spans start token, and then by length
+    #                 anteced_start = int(top_span_starts[anteced_span_idx])
+    #                 anteced_end = int(top_span_ends[anteced_span_idx])
+    #                 ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, anteced_start)
+    #                 # self._log_debug("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+    #                 all_anteced_valid_span_idxs.append(anteced_span_idx)
+    #                 all_anteced_starts.append(anteced_start)
+    #                 all_anteced_strs.append(" ".join(raw_bert_toks[anteced_start:anteced_end+1]))
+    #             else:
+    #                 ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, None)
+    #                 all_anteced_valid_span_idxs.append(-1)
+    #                 all_anteced_starts.append(-1)
+    #                 all_anteced_strs.append("<Null anteced>")
+    #                 # self._log_debug("  Null anteced")
+    #
+    #             ctx_tokens = raw_bert_toks[ctx_start:anaphor_start]
+    #
+    #             if anteced_span_idx >= 0 and anteced_span_idx < anaphor_span_idx \
+    #                 and anteced_end < anaphor_start:
+    #                 # ignore nested anaphors, treat them as null antecedent
+    #                 ctx_tokens.insert(anteced_start - ctx_start, "<anteced>")
+    #                 ctx_tokens.insert(anteced_end - ctx_start + 2, "</anteced>")
+    #
+    #             input_str = self.convert_tokens_to_string(ctx_tokens, append_tag=" <anaphor>")
+    #             all_input_strs.append(input_str)
+    #
+    #         # feed into GPT model to get probabilities
+    #         scores = self.s0(all_input_strs, anaphor_str) #[batch]
+    #         top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
+    #
+    #         # debug to see scores
+    #         self._log_debug("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
+    #         for i, (input_str, span_idx, start_idx, antecstr) in \
+    #             enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
+    #             score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
+    #             score_after = score_before + scores[i]
+    #             self._log_debug("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
+    #                 span_idx, start_idx, antecstr,
+    #                 scores[i], score_before, score_after))
+    #
+    #         old_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs]
+    #         prev_best_anteced_i = np.argmax(old_scores)
+    #         new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
+    #         new_best_anteced_i = np.argmax(new_scores)
+    #         if new_best_anteced_i != prev_best_anteced_i:
+    #             self._log_debug("*******************")
+    #             self._log_debug("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
+    #             self._log_debug("  BEST ANTECED CHANGED:")
+    #             self._log_debug("  stats: span_idx (start) str: s0_score/score_before/score_after")
+    #             self._log_debug("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+    #                 all_anteced_valid_span_idxs[prev_best_anteced_i],
+    #                 all_anteced_starts[prev_best_anteced_i],
+    #                 old_scores[prev_best_anteced_i],
+    #                 scores[prev_best_anteced_i],
+    #                 new_scores[prev_best_anteced_i],
+    #                 all_anteced_strs[prev_best_anteced_i],
+    #                 all_input_strs[prev_best_anteced_i]
+    #             ))
+    #             self._log_debug("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+    #                 all_anteced_valid_span_idxs[new_best_anteced_i],
+    #                 all_anteced_starts[new_best_anteced_i],
+    #                 old_scores[new_best_anteced_i],
+    #                 scores[new_best_anteced_i],
+    #                 new_scores[new_best_anteced_i],
+    #                 all_anteced_strs[new_best_anteced_i],
+    #                 all_input_strs[new_best_anteced_i]
+                # ))
 
 
         return top_antecedent_scores

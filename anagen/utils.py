@@ -41,5 +41,23 @@ def check_state_dict(model, optimizer=None):
             gpt2_state_dict["wte.weight"][9][:10].tolist(),
             speaker_state_dict["token_embedding.weight"][9][:10].tolist(),
             model.null_anteced_emb.data[:10].tolist(),
-            model.hidden_to_logits.weight[0][:10].tolist(),
-            )
+            model.hidden_to_logits.weight[0][:10].tolist())
+
+def combine_subtokens(toks, subtoken_map, is_bert=False):
+    res = []
+    prev_x = -1
+    curr_word = ""
+    for tok, x in zip(toks, subtoken_map):
+        if is_bert and (tok == "[CLS]" or tok == "[SEP]"):
+            continue
+        if prev_x != x and prev_x != -1:
+            res.append(curr_word)
+            curr_word = ""
+        if is_bert:
+            tok = tok.strip("#")
+        curr_word += tok
+        prev_x = x
+    if curr_word != "":
+        res.append(curr_word)
+
+    return res

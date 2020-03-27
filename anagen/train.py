@@ -66,6 +66,8 @@ def train(args, model, train_dataset, eval_dataset):
     """
     model.to(device)
 
+    print(self.null_anteced_emb)
+
     if args.model_load_path:
         # Load in model and optimizer states
         print("***** Loading model from %s *****" % args.model_load_path)
@@ -132,7 +134,7 @@ def train(args, model, train_dataset, eval_dataset):
                 estimated_time = (num_batches - (step+1)) * avg_time_per_batch
                 print("  step %d/%d, global_step %d, batch loss = %.6f" \
                       % (step+1, num_batches, global_step, loss))
-                print("  avg time per batch = %.2f, est %.2f mins left for this batch" \
+                print("  avg time per batch = %.2f, est %.2f mins left for this epoch" \
                       % (avg_time_per_batch, estimated_time / 60))
 
             if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:

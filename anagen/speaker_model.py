@@ -6,9 +6,9 @@ from transformers import GPT2Model, GPT2Tokenizer
 
 debug_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-class LiteralSpeakerModel(nn.Module):
+class RNNSpeakerModel(nn.Module):
     def __init__(self, args):
-        super(LiteralSpeakerModel, self).__init__()
+        super(RNNSpeakerModel, self).__init__()
         self.device = torch.device("cuda" if args.gpu else "cpu")
         self.use_metadata = args.use_metadata
         self.sum_start_end_emb = args.sum_start_end_emb
@@ -37,6 +37,14 @@ class LiteralSpeakerModel(nn.Module):
         self.end_tok = torch.tensor([GPT2_EOS_TOKEN_ID], device=self.device, requires_grad=False)
 
         self.loss_fxn = nn.CrossEntropyLoss()
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint_path):
+        ckpt = torch.load(checkpoint_path)
+        args = ckpt["args"]
+        model = cls(args)
+        model.load_state_dict(ckpt["model_state_dict"])
+        return model
 
     def freeze_gpt2(self):
         for param in self.gpt2_model.parameters():

@@ -1,6 +1,6 @@
 import torch
 import argparse
-from anagen.speaker_model import LiteralSpeakerModel
+from anagen.speaker_model import RNNSpeakerModel
 from anagen.dataset import AnagenDataset
 from anagen.train import train, parse_train_args
 
@@ -27,7 +27,7 @@ def main():
                                      args.max_segment_len)
     else:
         eval_dataset = None
-    model = LiteralSpeakerModel(args)
+    model = RNNSpeakerModel(args)
 
     train(args, model, train_dataset, eval_dataset)
 
