@@ -66,8 +66,6 @@ def train(args, model, train_dataset, eval_dataset):
     """
     model.to(device)
 
-    print(self.null_anteced_emb)
-
     if args.model_load_path:
         # Load in model and optimizer states
         print("***** Loading model from %s *****" % args.model_load_path)
