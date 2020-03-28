@@ -95,7 +95,7 @@ class AnagenExample:
         and anaphor sequences. """
 class AnagenDataset(Dataset):
     def __init__(self, jsonlines_file=None, batch_size=32, max_span_width=10,
-                 max_num_ctxs_in_batch=8, max_segment_len=512):
+                 max_num_ctxs_in_batch=8, max_segment_len=512, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
@@ -104,7 +104,10 @@ class AnagenDataset(Dataset):
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
         self.max_segment_len = 512
         self.num_examples = 0
-        self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+        if tokenizer:
+            self.tokenizer = tokenizer
+        else:
+            self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
         # just use print for now
         if jsonlines_file:
@@ -125,13 +128,13 @@ class AnagenDataset(Dataset):
 
     """ Get the tokens of a span in a given document.
         See definition in AnagenDocument.decode()"""
-    def decode(self, doc, start, end, in_segment=None):
+    def decode(self, doc, start, end, in_segment=None, output_str=True):
         if start == -1 and end == -1:
             return "<null>"
         if isinstance(doc, str):
-            return self.documents[doc].decode(start, end, in_segment)
+            return self.documents[doc].decode(start, end, in_segment, output_str)
         if isinstance(doc, AnagenDocument):
-            return doc.decode(start, end, in_segment)
+            return doc.decode(start, end, in_segment, output_str)
         else:
             ids = doc[start:end+1]
             return self.decode_ids(ids)

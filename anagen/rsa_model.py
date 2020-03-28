@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import logging
 import tqdm
+import time
 
 from anagen.utils import combine_subtokens, batch_to_device
 from anagen.dataset import AnagenDataset, AnagenDocument, AnagenExample, collate, GPT2_EOS_TOKEN_ID
@@ -70,47 +71,50 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         subtok_idx = 0
         gpt_toks = []
         gpt_subtok_to_word_map = []
-        gpt_word_to_subtok_map = []
+        gpt_word_to_subtok_start_map = []
+        gpt_word_to_subtok_end_map = []
         for word in orig_words:
             subtokens = self.tokenizer.tokenize(word)
-            gpt_word_to_subtok_map.append(subtok_idx)
+            gpt_word_to_subtok_start_map.append(subtok_idx)
             for subtoken in subtokens:
                 gpt_toks.append(subtoken)
                 gpt_subtok_to_word_map.append(word_idx)
                 subtok_idx += 1
+            gpt_word_to_subtok_end_map.append(subtok_idx-1)
             word_idx += 1
-        return gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_map
+        return gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map
 
 
     def l1(self, example, top_span_starts, top_span_ends, top_antecedents,
-           top_antecedent_scores):
+           top_antecedent_scores, debug=False):
         # Series of tokenization and data preprocessing similar to AnagenDataset
-        self._log_debug("********** Running l1 ***********")
 
         # initialize dataset on this document, use dataset object later to get
         # input into s0.
         dataset = AnagenDataset(jsonlines_file=None, batch_size=self.batch_size,
                                 max_span_width=MAX_SPAN_WIDTH,
                                 max_num_ctxs_in_batch=self.max_num_ctxs_in_batch,
-                                max_segment_len=self.max_segment_len)
+                                max_segment_len=self.max_segment_len,
+                                tokenizer=self.tokenizer)
 
         # set up tokenization transform from bert to gpt
         bert_toks = self.flatten_sentences(example["sentences"])
         bert_subtok_to_word_map = example["subtoken_map"]
         orig_words = combine_subtokens(bert_toks, bert_subtok_to_word_map, is_bert=True)
-        gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_map = self.retokenize(orig_words)
+        gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map = self.retokenize(orig_words)
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
-        gpt_word_to_subtok_map = np.array(gpt_word_to_subtok_map)
-        print("bert_subtok_to_word_map.shape", bert_subtok_to_word_map.shape)
-        print("gpt_subtok_to_word_map.shape", gpt_subtok_to_word_map.shape)
-        print("gpt_word_to_subtok_map.shape", gpt_word_to_subtok_map.shape)
+        gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
+        gpt_word_to_subtok_end_map = np.array(gpt_word_to_subtok_end_map)
+        # print("bert_subtok_to_word_map.shape", bert_subtok_to_word_map.shape)
+        # print("gpt_subtok_to_word_map.shape", gpt_subtok_to_word_map.shape)
+        # print("gpt_word_to_subtok_start_map.shape", gpt_word_to_subtok_start_map.shape)
+        # print("gpt_word_to_subtok_end_map.shape", gpt_word_to_subtok_end_map.shape)
 
         # get starting positions of segments
         bert_segment_lens = np.array([0] + [len(s) for s in example["sentences"]][:-1])
         bert_segment_starts = np.cumsum(bert_segment_lens)
-        word_segment_starts = bert_subtok_to_word_map[bert_segment_starts]
-        gpt_segment_starts = gpt_word_to_subtok_map[word_segment_starts]
+        gpt_segment_starts = gpt_word_to_subtok_start_map[bert_subtok_to_word_map[bert_segment_starts]]
         gpt_segment_starts = np.append(gpt_segment_starts, len(gpt_toks))
 
         # prepare document and add to dataset
@@ -131,17 +135,24 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             np.take_along_axis(top_antecedents, all_anteced_arr_idxs-1, axis=1), -1)
 
         # transform starts and ends
-        gpt_span_starts = gpt_word_to_subtok_map[bert_subtok_to_word_map[top_span_starts]]
-        gpt_span_ends = gpt_word_to_subtok_map[bert_subtok_to_word_map[top_span_ends]]
+        gpt_span_starts = gpt_word_to_subtok_start_map[bert_subtok_to_word_map[top_span_starts]]
+        gpt_span_ends = gpt_word_to_subtok_end_map[bert_subtok_to_word_map[top_span_ends]]
 
         # create examples to add to dataset, logic similar to
         # dataset._process_jsonline() and GPTSpeakerRSAModel.get_s0_input()
         valid_map = []
+        valid_examples = [] # valid examples per anaphor
+        valid_anteced_arr_idxs = []
         examples = []
         for anaphor_span_idx in range(len(gpt_span_starts)):
             anaphor_start = gpt_span_starts[anaphor_span_idx]
             anaphor_end = gpt_span_ends[anaphor_span_idx]
-            for anteced_span_idx in all_anteced_span_idxs[anaphor_span_idx]:
+
+            valid_arr_idxs = []
+            valid_exs = []
+            for anteced_arr_idx, anteced_span_idx in \
+                zip(all_anteced_arr_idxs[anaphor_span_idx],
+                    all_anteced_span_idxs[anaphor_span_idx]):
                 if anteced_span_idx >= anaphor_span_idx:
                     valid_map.append(False)
                     continue
@@ -164,31 +175,132 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                                        ctx_seg_start_idx, ctx_seg_end_idx)
                 examples.append(ex)
                 valid_map.append(True)
+
+                valid_arr_idxs.append(anteced_arr_idx)
+                valid_exs.append(ex)
+
+            valid_anteced_arr_idxs.append(valid_arr_idxs)
+            valid_examples.append(valid_exs)
         dataset.docs_to_examples[doc_key] = examples
         dataset.num_examples = len(examples)
 
         # finish up dataset
         dataset._finalize_batches()
 
-        self.s0(dataset)
+        # print("num valid %d / total %d / expected total %d" % (sum(valid_map), len(valid_map),
+        #                                                  all_anteced_span_idxs.shape[0] * all_anteced_span_idxs.shape[1]))
+        s0_input = dataset, valid_map, all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]
+
+        s0_scores = self.s0(s0_input)
+        # print(s0_scores)
+
+        if debug:
+            valid_map = np.array(valid_map).reshape((all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]))
+            # debug to see scores
+            for anaphor_span_idx in range(len(gpt_span_starts)):
+                anaphor_start = gpt_span_starts[anaphor_span_idx]
+                anaphor_end = gpt_span_ends[anaphor_span_idx]
+                anaphor_str = document.decode(anaphor_start, anaphor_end)
+
+                # self._log_debug("anteced stats: (start, end) str: s0_score + score_before = score_after")
+                anteced_arr_idxs = valid_anteced_arr_idxs[anaphor_span_idx]
+                scores = s0_scores[anaphor_span_idx][valid_map[anaphor_span_idx]]
+                exs = valid_examples[anaphor_span_idx]
+                anteced_strs = []
+                for i, ex in enumerate(exs):
+                    score_before = top_antecedent_scores[anaphor_span_idx][anteced_arr_idxs[i]]
+                    score_after = score_before + scores[i]
+                    anteced_str = document.decode(ex.anteced_start, ex.anteced_end)
+                    anteced_strs.append(anteced_str)
+                    # self._log_debug("  anteced (%d, %d) %s: %.2f + %.2f = %.2f" % (
+                    #     ex.anteced_start, ex.anteced_end, anteced_str,
+                    #     scores[i], score_before, score_after))
+
+                old_scores = top_antecedent_scores[anaphor_span_idx][anteced_arr_idxs]
+                prev_best_anteced_i = np.argmax(old_scores)
+                new_scores = top_antecedent_scores[anaphor_span_idx][anteced_arr_idxs] + scores
+                new_best_anteced_i = np.argmax(new_scores)
+                if new_best_anteced_i != prev_best_anteced_i:
+                    ctx_seg_start_idx_1 = exs[prev_best_anteced_i].ctx_seg_start_idx
+                    ctx_start_1 = document.segment_starts[ctx_seg_start_idx_1]
+                    self._log_debug("*******************")
+                    self._log_debug("anaphor (%d, %d) %s" % (anaphor_start, anaphor_end, anaphor_str))
+                    self._log_debug("  BEST ANTECED CHANGED:")
+                    self._log_debug("  anteced (start, end) str: s0_score + score_before = score_after")
+                    self._log_debug("  prev best in ctx: (%d, %d) %s: %.2f + %.2f = %.2f" % (
+                        exs[prev_best_anteced_i].anteced_start - ctx_start_1,
+                        exs[prev_best_anteced_i].anteced_end - ctx_start_1,
+                        anteced_strs[prev_best_anteced_i],
+                        scores[prev_best_anteced_i],
+                        old_scores[prev_best_anteced_i],
+                        new_scores[prev_best_anteced_i]
+                    ))
+                    ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
+                    ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
+                    self._log_debug("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f" % (
+                        exs[new_best_anteced_i].anteced_start - ctx_start_2,
+                        exs[new_best_anteced_i].anteced_end - ctx_start_2,
+                        anteced_strs[new_best_anteced_i],
+                        scores[new_best_anteced_i],
+                        old_scores[new_best_anteced_i],
+                        new_scores[new_best_anteced_i]
+                    ))
+                    ctx_end_2 = exs[new_best_anteced_i].anaphor_start - 1
+                    self._log_debug("  [context] %s" % document.decode(ctx_start_2, ctx_end_2))
+
+        # modify scores
+        l1_scores = np.copy(top_antecedent_scores)
+        for anaphor_span_idx in range(len(gpt_span_starts)):
+            anteced_idxs = all_anteced_arr_idxs[anaphor_span_idx]
+            l1_scores[anaphor_span_idx][anteced_idxs] += s0_scores[anaphor_span_idx]
+
+        return l1_scores
+
 
     def s0(self, s0_input):
-        self._log_debug("  Running S0 on %d batches" % len(s0_input))
-        device = self.device
-        sampler = SequentialSampler(s0_input)
-        dataloader = DataLoader(s0_input, sampler=sampler, batch_size=1,
+        dataset, valid_map, num_anaphors, num_anteceds = s0_input
+        self._log_debug("  Running S0 on %d batches" % len(dataset))
+        sampler = SequentialSampler(dataset)
+        dataloader = DataLoader(dataset, sampler=sampler, batch_size=1,
                                 collate_fn=collate)
         self.s0_model.eval()
 
+        all_scores = []
         for batch in dataloader:
             with torch.no_grad():
-                batch = batch_to_device(batch, device)
+                batch = batch_to_device(batch, self.device)
+
                 res_dict = self.s0_model(batch)
                 scores = res_dict["logits"]
-                print(scores.shape)
 
+                scramble_idxs = batch["scramble_idxs"]
+                anaphor_ids = batch["anaphor_ids"]
+                anaphor_ids_padding_mask = batch["anaphor_ids_padding_mask"]
 
+                # transform into original order
+                _, unscramble_idxs = torch.sort(scramble_idxs)
+                scores = scores.index_select(0, unscramble_idxs) # [batch, max_len, vocab]
+                anaphor_ids = anaphor_ids.index_select(0, unscramble_idxs) # [batch, max_length]
+                anaphor_ids_padding_mask = anaphor_ids_padding_mask.index_select(0, unscramble_idxs)
 
+                batch_size = scores.shape[0]
+                end_toks = self.s0_model.end_tok.unsqueeze(0).repeat(batch_size, 1)
+                anaphor_ids = torch.cat((anaphor_ids, end_toks), 1)
+                ones = torch.ones(batch_size, device=self.device).unsqueeze(1)
+                anaphor_ids_padding_mask = torch.cat((ones, anaphor_ids_padding_mask), 1)
+
+                scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
+                scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1)
+                # print("scores before len normalization", scores)
+                scores = scores.div(anaphor_ids_padding_mask.sum(dim=1))
+                # print("scores after len normalization", scores)
+                # for toks in anaphor_ids:
+                #     print(s0_input.decode_ids(toks))
+                all_scores += scores.tolist()
+
+        s0_scores = np.zeros(len(valid_map))
+        s0_scores[valid_map] = all_scores
+        return s0_scores.reshape((num_anaphors, num_anteceds))
 
 
 class GPTSpeakerRSAModel(CorefRSAModel):
@@ -466,43 +578,43 @@ class GPTSpeakerRSAModel(CorefRSAModel):
     #         scores = self.s0(all_input_strs, anaphor_str) #[batch]
     #         top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
     #
-    #         # debug to see scores
-    #         self._log_debug("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
-    #         for i, (input_str, span_idx, start_idx, antecstr) in \
-    #             enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
-    #             score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
-    #             score_after = score_before + scores[i]
-    #             self._log_debug("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
-    #                 span_idx, start_idx, antecstr,
-    #                 scores[i], score_before, score_after))
-    #
-    #         old_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs]
-    #         prev_best_anteced_i = np.argmax(old_scores)
-    #         new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
-    #         new_best_anteced_i = np.argmax(new_scores)
-    #         if new_best_anteced_i != prev_best_anteced_i:
-    #             self._log_debug("*******************")
-    #             self._log_debug("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
-    #             self._log_debug("  BEST ANTECED CHANGED:")
-    #             self._log_debug("  stats: span_idx (start) str: s0_score/score_before/score_after")
-    #             self._log_debug("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
-    #                 all_anteced_valid_span_idxs[prev_best_anteced_i],
-    #                 all_anteced_starts[prev_best_anteced_i],
-    #                 old_scores[prev_best_anteced_i],
-    #                 scores[prev_best_anteced_i],
-    #                 new_scores[prev_best_anteced_i],
-    #                 all_anteced_strs[prev_best_anteced_i],
-    #                 all_input_strs[prev_best_anteced_i]
-    #             ))
-    #             self._log_debug("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
-    #                 all_anteced_valid_span_idxs[new_best_anteced_i],
-    #                 all_anteced_starts[new_best_anteced_i],
-    #                 old_scores[new_best_anteced_i],
-    #                 scores[new_best_anteced_i],
-    #                 new_scores[new_best_anteced_i],
-    #                 all_anteced_strs[new_best_anteced_i],
-    #                 all_input_strs[new_best_anteced_i]
-                # ))
+            # # debug to see scores
+            # self._log_debug("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
+            # for i, (input_str, span_idx, start_idx, antecstr) in \
+            #     enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
+            #     score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
+            #     score_after = score_before + scores[i]
+            #     self._log_debug("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
+            #         span_idx, start_idx, antecstr,
+            #         scores[i], score_before, score_after))
+            #
+            # old_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs]
+            # prev_best_anteced_i = np.argmax(old_scores)
+            # new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
+            # new_best_anteced_i = np.argmax(new_scores)
+            # if new_best_anteced_i != prev_best_anteced_i:
+            #     self._log_debug("*******************")
+            #     self._log_debug("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
+            #     self._log_debug("  BEST ANTECED CHANGED:")
+            #     self._log_debug("  stats: span_idx (start) str: s0_score/score_before/score_after")
+            #     self._log_debug("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+            #         all_anteced_valid_span_idxs[prev_best_anteced_i],
+            #         all_anteced_starts[prev_best_anteced_i],
+            #         old_scores[prev_best_anteced_i],
+            #         scores[prev_best_anteced_i],
+            #         new_scores[prev_best_anteced_i],
+            #         all_anteced_strs[prev_best_anteced_i],
+            #         all_input_strs[prev_best_anteced_i]
+            #     ))
+            #     self._log_debug("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+            #         all_anteced_valid_span_idxs[new_best_anteced_i],
+            #         all_anteced_starts[new_best_anteced_i],
+            #         old_scores[new_best_anteced_i],
+            #         scores[new_best_anteced_i],
+            #         new_scores[new_best_anteced_i],
+            #         all_anteced_strs[new_best_anteced_i],
+            #         all_input_strs[new_best_anteced_i]
+            #     ))
 
 
         return top_antecedent_scores

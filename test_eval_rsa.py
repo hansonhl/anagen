@@ -47,7 +47,7 @@ if __name__ == "__main__":
                                        args.anteced_top_k,
                                        args.max_num_ctxs_in_batch,
                                        device,
-                                       logger=logger)
+                                       logger=None)
     # setup logger
     with open(args.from_npy, "rb") as f:
         from_npy_dict = np.load(f)
@@ -64,13 +64,12 @@ if __name__ == "__main__":
         top_antecedents = data_dict["top_antecedents"]
         top_antecedent_scores = data_dict["top_antecedent_scores"]
 
-        logger.info("running l1 for sentence %d" % example_num)
+        print("running l1 for sentence %d" % example_num)
         start_time = time.time()
-        rsa_model.l1(example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores)
+        rsa_model.l1(example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores, debug=True)
         duration = time.time() - start_time
-        logger.info("sentence %d finished, took %.2f s" % (example_num, duration))
+        print("sentence %d finished, took %.2f s" % (example_num, duration))
         total_time += duration
         total_docs += 1
-
         break
     print("average time per sentence: %.2f s" % (total_time / total_docs))

@@ -136,7 +136,7 @@ class RNNSpeakerModel(nn.Module):
         batch_size = logits.shape[0]
 
         # append end of sentence token to gold ids
-        end_toks = self.end_tok[None].repeat(batch_size, 1)
+        end_toks = self.end_tok.unsqueeze(0).repeat(batch_size, 1)
         gold_anaphor_ids = torch.cat((anaphor_ids, end_toks), 1) # [batch_size, max_len+1]
 
         # adjust mask to include start token
