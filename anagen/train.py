@@ -84,10 +84,12 @@ def train(args, model, train_dataset, eval_dataset):
     global_step = 0
 
     if args.model_load_path:
-        print("***** Loading state of optimizer *****")
         global_step = ckpt["global_step"]
         if not (ckpt["args"].unfreeze_gpt2 ^ args.unfreeze_gpt2):
+            print("***** Loading state of optimizer *****")
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        else:
+            print("***** Not loading state of optimizer *****")
 
     num_batches = len(train_dataset)
     # start training
