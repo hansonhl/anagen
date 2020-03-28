@@ -86,7 +86,8 @@ def train(args, model, train_dataset, eval_dataset):
     if args.model_load_path:
         print("***** Loading state of optimizer *****")
         global_step = ckpt["global_step"]
-        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        if not (ckpt["args"].unfreeze_gpt2 ^ args.unfreeze_gpt2):
+            optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 
     num_batches = len(train_dataset)
     # start training
@@ -129,7 +130,7 @@ def train(args, model, train_dataset, eval_dataset):
             loss = loss.item()
             del res_dict
 
-            if global_step % args.log_steps == 0:
+            if training_steps_in_this_session < 100 or global_step % args.log_steps == 0:
                 avg_time_per_batch = total_training_time / training_steps_in_this_session
                 estimated_time = (num_batches - (step+1)) * avg_time_per_batch
                 print("  step %d/%d, global_step %d, batch loss = %.6f" \
