@@ -117,7 +117,8 @@ class RNNSpeakerModel(nn.Module):
         if self.sum_start_end_emb:
             emb_list.append(anteced_start_embs + anteced_end_embs)
         else:
-            emb_list.append(anteced_start_embs, anteced_end_embs)
+            emb_list.append(anteced_start_embs)
+            emb_list.append(anteced_end_embs)
 
         # get context embeddings
         # just use emb of one token before anaphor
