@@ -10,7 +10,10 @@ class RNNSpeakerModel(nn.Module):
     def __init__(self, args):
         super(RNNSpeakerModel, self).__init__()
         self.device = torch.device("cuda" if args.gpu else "cpu")
-        self.use_metadata = args.use_metadata
+        self.use_speaker_info = args.use_speaker_info
+        self.use_distance_info = args.use_distance_info
+        self.distance_groups = args.distance_groups
+        self.metadata_emb_size = args.metadata_emb_size
         self.sum_start_end_emb = args.sum_start_end_emb
 
         self.gpt2_hidden_size = args.gpt2_hidden_size
@@ -19,8 +22,11 @@ class RNNSpeakerModel(nn.Module):
         self.ctx_emb_size = args.gpt2_hidden_size
         self.rnn_hidden_size = self.anteced_emb_size + self.ctx_emb_size
 
-        if args.use_metadata:
-            self.rnn_hidden_size += args.anteced_len_emb_size + args.distance_emb_size
+        if self.use_speaker_info:
+            self.rnn_hidden_size += self.metadata_emb_size
+        if self.use_distance_info:
+            self.rnn_hidden_size += self.metadata_emb_size
+        print("self.rnn_hidden_size", self.rnn_hidden_size)
 
         self.gpt2_model = GPT2Model.from_pretrained(args.gpt2_model_dir \
             if args.gpt2_model_dir else "gpt2")
@@ -34,8 +40,14 @@ class RNNSpeakerModel(nn.Module):
         self.hidden_to_logits = nn.Linear(self.rnn_hidden_size, self.vocab_size)
         self.null_anteced_emb = nn.Parameter(args.param_init_stdev * torch.randn(self.gpt2_hidden_size))
         self.anaphor_start_emb = nn.Parameter(args.param_init_stdev * torch.randn(self.gpt2_hidden_size))
-        self.end_tok = torch.tensor([GPT2_EOS_TOKEN_ID], device=self.device, requires_grad=False)
 
+        if self.use_speaker_info:
+            self.speaker_emb = nn.Embedding(2, self.metadata_emb_size)
+        if self.use_distance_info:
+            # use 32 even buckets of width 16, last bucket is for everything else
+            self.distance_emb = nn.Embedding(self.distance_groups, self.metadata_emb_size)
+
+        self.end_tok = torch.tensor([GPT2_EOS_TOKEN_ID], device=self.device, requires_grad=False)
         self.loss_fxn = nn.CrossEntropyLoss()
 
     @classmethod
@@ -75,6 +87,7 @@ class RNNSpeakerModel(nn.Module):
         anteced_starts = batch["anteced_starts"] # [batch_size,]
         anteced_ends = batch["anteced_ends"] # [batch_size,]
         anaphor_starts = batch["anaphor_starts"] # [batch_size,]
+        speaker_info = batch["speaker_info"] # [batch_size,]
 
         gpt2_output = self.gpt2_model(ctx_ids, attention_mask=ctx_ids_padding_mask)
         hidden_states = gpt2_output[0]
@@ -88,16 +101,23 @@ class RNNSpeakerModel(nn.Module):
             hidden_states.view(-1, hidden_states.shape[-1])),0)
         # [1+num_ctxs*max_ctx_len, gpt2_hidden_size]
 
+        emb_list = []
+
         # get antecedent embeddings
+        null_anteced = anteced_starts == -1
         flat_idx_offset = (torch.arange(ctx_ids.shape[0], device=self.device) \
                            * ctx_ids.shape[1])[ctx_set_idxs] # [batch_size,]
         flat_anteced_start_idxs = flat_idx_offset + anteced_starts + 1 # [batch_size,]
         flat_anteced_end_idxs = flat_idx_offset + anteced_ends + 1 # [batch_size,]
-        flat_anteced_start_idxs[anteced_starts == -1] = 0
-        flat_anteced_end_idxs[anteced_ends == -1] = 0
+        flat_anteced_start_idxs[null_anteced] = 0
+        flat_anteced_end_idxs[null_anteced] = 0
         anteced_start_embs = flat_hidden_states.index_select(0, flat_anteced_start_idxs)
         anteced_end_embs = flat_hidden_states.index_select(0, flat_anteced_end_idxs)
         # [batch_size, gpt2_hidden_size]
+        if self.sum_start_end_emb:
+            emb_list.append(anteced_start_embs + anteced_end_embs)
+        else:
+            emb_list.append(anteced_start_embs, anteced_end_embs)
 
         # get context embeddings
         # just use emb of one token before anaphor
@@ -105,11 +125,18 @@ class RNNSpeakerModel(nn.Module):
         flat_ctx_ends = flat_idx_offset + anaphor_starts # [batch_size, ]
         ctx_embs = flat_hidden_states.index_select(0, flat_ctx_ends)
         # [batch_size, gpt2_hidden_size]
+        emb_list.append(ctx_embs)
 
-        if self.sum_start_end_emb:
-            input_embs = torch.cat((anteced_start_embs + anteced_end_embs, ctx_embs), 1)
-        else:
-            input_embs = torch.cat((anteced_start_embs, anteced_end_embs, ctx_embs), 1)
+        if self.use_speaker_info:
+            speaker_embs = self.speaker_emb(speaker_info)
+            emb_list.append(speaker_embs)
+        if self.use_distance_info:
+            distances = anaphor_starts - anteced_starts
+            distance_ids = torch.clamp(distances / 16, min=0, max=self.distance_groups-1)
+            distance_embs = self.distance_emb(distance_ids)
+            emb_list.append(distance_embs)
+
+        input_embs = torch.cat(emb_list, 1)
         # [batch_size, gpt2_hidden_size * 3]
         return input_embs
 

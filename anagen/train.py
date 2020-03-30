@@ -40,7 +40,11 @@ def parse_train_args(parser):
     # model settings
     parser.add_argument("--gpt2_hidden_size", type=int, default=768)
     parser.add_argument("--sum_start_end_emb", action="store_true")
-    parser.add_argument("--use_metadata", action="store_true")
+    parser.add_argument("--use_speaker_info", action="store_true")
+    parser.add_argument("--use_distance_info", action="store_true")
+    parser.add_argument("--distance_groups", action="store_true", default=32)
+    parser.add_argument("--metadata_emb_size", type=int, default=20)
+
     parser.add_argument("--param_init_stdev", type=float, default=0.1)
     parser.add_argument("--rnn_num_layers", type=int, default=1)
 

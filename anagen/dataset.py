@@ -23,8 +23,6 @@ class AnagenDocument:
             self.raw_speakers = speakers
             speaker_dict = self.get_speaker_dict(speakers)
             self.speakers = [speaker_dict[s] for s in speakers]
-        print("len(speakers)", len(self.speakers))
-        print("len(segment_ids)", len(flatten(self.segment_ids)))
 
     """ get speaker dict, copied from coref/independent.py CorefModel.get_speaker_dict() """
     def get_speaker_dict(self, speakers):
@@ -112,7 +110,7 @@ class AnagenExample:
 class AnagenDataset(Dataset):
     def __init__(self, jsonlines_file=None, batch_size=32, max_span_width=10,
                  max_num_ctxs_in_batch=8, max_segment_len=512,
-                 use_speaker_info=True, tokenizer=None):
+                 use_speaker_info=False, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
@@ -363,7 +361,7 @@ def collate(batch):
     anteced_starts = torch.tensor(anteced_starts)
     anteced_ends = torch.tensor(anteced_ends)
     anaphor_starts = torch.tensor(anaphor_starts)
-    speaker_info = torch.tensor(speaker_info).int() if speaker_info is not None else None
+    speaker_info = torch.tensor(speaker_info).long() if speaker_info is not None else None
     anteced_starts_in_ctx = torch.clamp(anteced_starts - ctx_starts, min=-1)
     anteced_ends_in_ctx = torch.clamp(anteced_ends - ctx_starts, min=-1)
     anaphor_starts_in_ctx = anaphor_starts - ctx_starts

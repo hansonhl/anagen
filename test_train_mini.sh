@@ -9,5 +9,7 @@ python run_train.py \
     --log_steps 5 \
     --train_epochs 5 \
     --sum_start_end_emb \
+    --use_speaker_info \
+    --use_distance_info \
     --model_save_path output/test_model_save \
     --eval_and_save_by_epoch
