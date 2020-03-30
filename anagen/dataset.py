@@ -6,18 +6,33 @@ from torch.utils.data import Dataset
 from transformers import GPT2Tokenizer
 
 GPT2_EOS_TOKEN_ID = 50256
+MAX_NUM_SPEAKERS = 20
 
 """ Stores tokenized strings and id form of a document used in the anaphor
     generation task."""
 class AnagenDocument:
-    def __init__(self, doc_key, segments, segment_starts, speakers, subtoken_map, tokenizer):
+    def __init__(self, doc_key, segments, segment_starts, subtoken_map, speakers, tokenizer):
         self.doc_key = doc_key
         self.segment_toks = segments
         self.segment_ids = [tokenizer.encode(seg) for seg in segments]
         self.segment_starts = segment_starts
-        self.speakers = speakers
         self.subtoken_map = subtoken_map
         self.tokenizer = tokenizer
+
+        if speakers is not None:
+            self.raw_speakers = speakers
+            speaker_dict = self.get_speaker_dict(speakers)
+            self.speakers = [speaker_dict[s] for s in speakers]
+        print("len(speakers)", len(self.speakers))
+        print("len(segment_ids)", len(flatten(self.segment_ids)))
+
+    """ get speaker dict, copied from coref/independent.py CorefModel.get_speaker_dict() """
+    def get_speaker_dict(self, speakers):
+        speaker_dict = {'UNK': 0, '[SPL]': 1}
+        for s in speakers:
+            if s not in speaker_dict and len(speaker_dict) < MAX_NUM_SPEAKERS:
+                speaker_dict[s] = len(speaker_dict)
+        return speaker_dict
 
     """ Given indices ranging in the whole document, obtain corresponding
         segment and index in the segment"""
@@ -38,6 +53,7 @@ class AnagenDocument:
             in_segment (int or None): segment index, if given then the start
                 and end above are relevant to this segment.
             output_str (bool): whether to undo bpe and return original string. """
+
     def decode(self, start, end, in_segment=None, output_str=True):
         if start == -1 and end == -1:
             return "<null>"
@@ -95,7 +111,8 @@ class AnagenExample:
         and anaphor sequences. """
 class AnagenDataset(Dataset):
     def __init__(self, jsonlines_file=None, batch_size=32, max_span_width=10,
-                 max_num_ctxs_in_batch=8, max_segment_len=512, tokenizer=None):
+                 max_num_ctxs_in_batch=8, max_segment_len=512,
+                 use_speaker_info=True, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
@@ -103,6 +120,7 @@ class AnagenDataset(Dataset):
         self.max_span_width = max_span_width
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
         self.max_segment_len = 512
+        self.use_speaker_info = use_speaker_info
         self.num_examples = 0
         if tokenizer:
             self.tokenizer = tokenizer
@@ -150,7 +168,7 @@ class AnagenDataset(Dataset):
         coref_example = json.loads(line)
         doc_key = coref_example["doc_key"]
         segments = coref_example["sentences"]
-        speakers = coref_example["speakers"]
+        speakers = flatten(coref_example["speakers"])
         subtoken_map = coref_example["subtoken_map"]
         clusters = coref_example["clusters"]
 
@@ -158,8 +176,8 @@ class AnagenDataset(Dataset):
         segment_lens = np.array([0] + [len(s) for s in segments])
         segment_starts = np.cumsum(segment_lens)
 
-        document = AnagenDocument(doc_key, segments, segment_starts, speakers,
-                                  subtoken_map, self.tokenizer)
+        document = AnagenDocument(doc_key, segments, segment_starts,
+                                  subtoken_map, speakers, self.tokenizer)
         self.documents[doc_key] = document
 
         # get cluster information
@@ -234,6 +252,10 @@ class AnagenDataset(Dataset):
         anteced_starts = [ex.anteced_start for ex in batch]
         anteced_ends = [ex.anteced_end for ex in batch]
         anaphor_starts = [ex.anaphor_start for ex in batch]
+        if self.use_speaker_info:
+            speaker_info = [doc.speakers[ex.anteced_start] == doc.speakers[ex.anaphor_start] \
+                            if ex.anteced_start >= 0 else False
+                            for ex in batch]
 
         # prepare anaphors in id form, and prepare ctx_set:
         # for all ctx ranges (denoted by tuples) in batch, remove duplicates to
@@ -278,16 +300,28 @@ class AnagenDataset(Dataset):
         #
         # for s, e, anaphor_id in zip(anteced_starts, anteced_ends, anaphor_ids):
             # print("[anteced]", self.decode(doc, s, e), "[anaphor]", self.decode(anaphor_id))
-        self.batches.append((doc_key, ctx_set, ctx_starts, ctx_set_idxs,
-                             anteced_starts, anteced_ends, anaphor_starts, anaphor_ids))
+
+        if self.use_speaker_info:
+            batch_tuple = (doc_key, ctx_set, ctx_starts, ctx_set_idxs,
+                           anteced_starts, anteced_ends, anaphor_starts, anaphor_ids,
+                           speaker_info)
+        else:
+            batch_tuple = (doc_key, ctx_set, ctx_starts, ctx_set_idxs,
+                           anteced_starts, anteced_ends, anaphor_starts, anaphor_ids)
+        self.batches.append(batch_tuple)
 
     def __len__(self):
         return len(self.batches)
 
     """ obtain full id form of ctx, pass on everything else """
     def __getitem__(self, idx):
-        doc_key, ctx_set, ctx_starts, ctx_set_idxs, anteced_starts, anteced_ends, \
-             anaphor_starts, anaphor_ids = self.batches[idx]
+        if self.use_speaker_info:
+            doc_key, ctx_set, ctx_starts, ctx_set_idxs, anteced_starts, anteced_ends, \
+                 anaphor_starts, anaphor_ids, speaker_info = self.batches[idx]
+        else:
+            doc_key, ctx_set, ctx_starts, ctx_set_idxs, anteced_starts, anteced_ends, \
+                 anaphor_starts, anaphor_ids = self.batches[idx]
+            speaker_info = None
 
         doc = self.documents[doc_key]
 
@@ -298,7 +332,7 @@ class AnagenDataset(Dataset):
             # print("[anteced]", self.decode(doc, s, e), "[anaphor]", self.decode(anaphor_id))
 
         return doc_key, ctx_set, ctx_starts, ctx_ids, ctx_set_idxs, \
-            anteced_starts, anteced_ends, anaphor_starts, anaphor_ids
+            anteced_starts, anteced_ends, anaphor_starts, anaphor_ids, speaker_info
 
 """ Processes data retrieved from Dataset.__getitem__, converts everything into
     tensors. Returns a dictionary containing content of batch:
@@ -317,8 +351,8 @@ class AnagenDataset(Dataset):
     'scramble_idxs': [batch_size,] tensor of indices that is applied to sort
         examples in order of decreasing anaphor length."""
 def collate(batch):
-    _, _, ctx_starts, ctx_ids, ctx_set_idxs, anteced_starts, anteced_ends, \
-        anaphor_starts, anaphor_ids = batch[0]
+    doc_key, _, ctx_starts, ctx_ids, ctx_set_idxs, anteced_starts, anteced_ends, \
+        anaphor_starts, anaphor_ids, speaker_info = batch[0]
 
     # transform everything else into tensor form.
     # All following tensors have dim [batch_size,]
@@ -329,6 +363,7 @@ def collate(batch):
     anteced_starts = torch.tensor(anteced_starts)
     anteced_ends = torch.tensor(anteced_ends)
     anaphor_starts = torch.tensor(anaphor_starts)
+    speaker_info = torch.tensor(speaker_info).int() if speaker_info is not None else None
     anteced_starts_in_ctx = torch.clamp(anteced_starts - ctx_starts, min=-1)
     anteced_ends_in_ctx = torch.clamp(anteced_ends - ctx_starts, min=-1)
     anaphor_starts_in_ctx = anaphor_starts - ctx_starts
@@ -355,11 +390,14 @@ def collate(batch):
     sorted_anteced_starts = anteced_starts_in_ctx[scramble_idxs]
     sorted_anteced_ends = anteced_ends_in_ctx[scramble_idxs]
     sorted_anaphor_starts = anaphor_starts_in_ctx[scramble_idxs]
+    sorted_speaker_info = speaker_info[scramble_idxs] if speaker_info is not None else None
 
     batch_dict = {
-        'ctx_ids': padded_ctx_ids, #ok
-        'ctx_ids_padding_mask': ctx_ids_padding_mask, #ok
-        'ctx_lens': ctx_lens, #ok
+        'doc_key': doc_key,
+        'ctx_ids': padded_ctx_ids,
+        'ctx_ids_padding_mask': ctx_ids_padding_mask,
+        'ctx_starts': ctx_starts,
+        'ctx_lens': ctx_lens,
         'ctx_set_idxs': sorted_ctx_set_idxs,
         'anteced_starts': sorted_anteced_starts,
         'anteced_ends': sorted_anteced_ends,
@@ -367,7 +405,8 @@ def collate(batch):
         'anaphor_ids': padded_anaphor_ids,
         'anaphor_ids_padding_mask': anaphor_ids_padding_mask,
         'anaphor_lens': sorted_anaphor_lens,
-        'scramble_idxs': scramble_idxs
+        'scramble_idxs': scramble_idxs,
+        'speaker_info': sorted_speaker_info
     }
 
     return batch_dict
