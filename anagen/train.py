@@ -89,7 +89,7 @@ def train(args, model, train_dataset, eval_dataset):
         global_step = ckpt["global_step"]
         if not (ckpt["args"].unfreeze_gpt2 ^ args.unfreeze_gpt2):
             print("***** Loading state of optimizer *****")
-            optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            # optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         else:
             print("***** Not loading state of optimizer *****")
 

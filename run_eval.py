@@ -2,7 +2,7 @@ import torch
 import argparse
 from anagen.speaker_model import RNNSpeakerModel
 from anagen.dataset import AnagenDataset
-from anagen.train import eval, parse_train_args
+from anagen.train import evaluate, parse_train_args
 from transformers import GPT2Tokenizer
 
 
