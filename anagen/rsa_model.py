@@ -64,6 +64,9 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
         self.device = device
 
+        ckpt = torch.load(model_dir)
+        self.use_speaker_info = ckpt["args"].use_speaker_info
+
         self.s0_model.to(device)
 
     def retokenize(self, orig_words):
@@ -84,6 +87,25 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             word_idx += 1
         return gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map
 
+    def bert_to_orig_speakers(self, speakers, subtoken_map):
+        assert len(speakers) == len(subtoken_map)
+        res = []
+        prev_x = -1
+        for speaker, x in zip(speakers, subtoken_map):
+            if prev_x != x:
+                res.append(speaker)
+            prev_x = x
+        return res
+
+    def orig_to_gpt_speakers(self, speakers, gpt_word_to_subtok_end_map):
+        assert len(speakers) == len(gpt_word_to_subtok_end_map)
+        res = []
+        j = 0
+        for i in range(len(speakers)):
+            while j <= gpt_word_to_subtok_end_map[i]:
+                res.append(speakers[i])
+                j += 1
+        return res
 
     def l1(self, example, top_span_starts, top_span_ends, top_antecedents,
            top_antecedent_scores, debug=False):
@@ -95,6 +117,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                                 max_span_width=MAX_SPAN_WIDTH,
                                 max_num_ctxs_in_batch=self.max_num_ctxs_in_batch,
                                 max_segment_len=self.max_segment_len,
+                                use_speaker_info=self.use_speaker_info,
                                 tokenizer=self.tokenizer)
 
         # set up tokenization transform from bert to gpt
@@ -117,15 +140,23 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         gpt_segment_starts = gpt_word_to_subtok_start_map[bert_subtok_to_word_map[bert_segment_starts]]
         gpt_segment_starts = np.append(gpt_segment_starts, len(gpt_toks))
 
+        # prepare speaker information
+        bert_speakers = self.flatten_sentences(example["speakers"])
+        orig_speakers = self.bert_to_orig_speakers(bert_speakers, bert_subtok_to_word_map)
+        gpt_speakers = self.orig_to_gpt_speakers(orig_speakers, gpt_word_to_subtok_end_map)
+        assert len(gpt_speakers) == len(gpt_toks)
+
         # prepare document and add to dataset
         doc_key = example["doc_key"]
-        speakers = None
         segments = []
         for i in range(len(gpt_segment_starts)-1):
             ctx_start, ctx_end = gpt_segment_starts[i], gpt_segment_starts[i+1]
             segments.append(list(gpt_toks)[ctx_start:ctx_end])
-        document = AnagenDocument(doc_key, segments, gpt_segment_starts,
-                                  speakers, gpt_subtok_to_word_map, self.tokenizer)
+        document = AnagenDocument(doc_key=doc_key, segments=segments,
+                                  segment_starts=gpt_segment_starts,
+                                  subtoken_map=gpt_subtok_to_word_map,
+                                  speakers=gpt_speakers,
+                                  tokenizer=self.tokenizer)
         dataset.documents[doc_key] = document
 
         # Extract candidates given l0 probabilities: get top k antecedents

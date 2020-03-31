@@ -34,7 +34,7 @@ def main():
     global_step = ckpt["global_step"]
     epoch = ckpt["epoch"]
 
-    print("*** Evaluating model that has been trained for %d epochs" % global_step)
+    print("*** Evaluating model that has been trained for %d epochs" % epoch)
 
     evaluate(args, model, eval_dataset, global_step)
 

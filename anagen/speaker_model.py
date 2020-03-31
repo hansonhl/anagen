@@ -10,10 +10,13 @@ class RNNSpeakerModel(nn.Module):
     def __init__(self, args):
         super(RNNSpeakerModel, self).__init__()
         self.device = torch.device("cuda" if args.gpu else "cpu")
-        self.use_speaker_info = args.use_speaker_info
-        self.use_distance_info = args.use_distance_info
-        self.distance_groups = args.distance_groups
-        self.metadata_emb_size = args.metadata_emb_size
+        if hasattr(args, "use_speaker_info"):
+            self.use_speaker_info = args.use_speaker_info
+            self.metadata_emb_size = args.metadata_emb_size
+        if hasattr(args, "use_distance_info"):
+            self.use_distance_info = args.use_distance_info
+            self.distance_groups = args.distance_groups
+
         self.sum_start_end_emb = args.sum_start_end_emb
 
         self.gpt2_hidden_size = args.gpt2_hidden_size
