@@ -162,7 +162,7 @@ def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch
             "step_in_epoch": step_in_epoch,
             "global_step": global_step,
             "model_state_dict": model.state_dict(), # just save everything for now
-            "optimizer_state_dict": optimizer.state_dict()
+            # "optimizer_state_dict": optimizer.state_dict()
         }
         if eval_loss < best_loss:
             best_save_path = args.model_save_path + "_best.ckpt"
