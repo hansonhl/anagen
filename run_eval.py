@@ -15,6 +15,8 @@ def main():
         print("setting random seed to %d" % args.random_seed)
         torch.manual_seed(args.random_seed)
 
+    device = torch.device("cuda" if args.gpu else "cpu")
+
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
     eval_dataset = AnagenDataset(jsonlines_file=args.eval_jsonlines,
@@ -26,6 +28,7 @@ def main():
                                  tokenizer=tokenizer)
 
     model = RNNSpeakerModel.from_checkpoint(args.model_load_path)
+    model.to(device)
 
     ckpt = torch.load(args.model_load_path)
     global_step = ckpt["global_step"]
