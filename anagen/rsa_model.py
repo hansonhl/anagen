@@ -50,15 +50,15 @@ class CorefRSAModel:
         return starts
 
     def l1(self, example, top_span_starts, top_span_ends,
-           top_antecedents, top_antecedent_scores, alpha=1.0):
+           top_antecedents, top_antecedent_scores, alphas=1.0):
         raise NotImplementedError()
 
 
 class RNNSpeakerRSAModel(CorefRSAModel):
     def __init__(self, model_dir, batch_size, max_segment_len, anteced_top_k,
-                 max_num_ctxs_in_batch, device, logger=None):
+                 max_num_ctxs_in_batch, device, tokenizer=None, logger=None):
         super(RNNSpeakerRSAModel, self).__init__(anteced_top_k, logger)
-        self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+        self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2") if tokenizer is None else tokenizer
         self.s0_model = RNNSpeakerModel.from_checkpoint(model_dir)
         self.batch_size = batch_size
         self.max_segment_len = max_segment_len
@@ -66,7 +66,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         self.device = device
 
         ckpt = torch.load(model_dir)
-        self.use_speaker_info = ckpt["args"].use_speaker_info
+        args = ckpt["args"]
+        self.use_speaker_info = args.use_speaker_info if hasattr(args, "use_speaker_info") else False
 
         self.s0_model.to(device)
 
@@ -111,7 +112,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
     def l1(self, example, top_span_starts, top_span_ends, top_antecedents,
            top_antecedent_scores, alphas=1.0, debug=False):
         # accept a sequence of alphas to run grid search
-        assert isinstance(alphas, int) or isinstance(alphas, list) or isinstance(alphas, tuple)
+        assert isinstance(alphas, float) or isinstance(alphas, int)  \
+            or isinstance(alphas, list) or isinstance(alphas, tuple)
 
         # Series of tokenization and data preprocessing similar to AnagenDataset
         # initialize dataset on this document, use dataset object later to get
@@ -299,12 +301,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                 all_l1_scores.append(l1_scores)
             return all_l1_scores
 
-
-
-
     def s0(self, s0_input):
         dataset, valid_map, num_anaphors, num_anteceds = s0_input
-        self._log_debug("  Running S0 on %d batches" % len(dataset))
         sampler = SequentialSampler(dataset)
         dataloader = DataLoader(dataset, sampler=sampler, batch_size=1,
                                 collate_fn=collate)
