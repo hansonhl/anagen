@@ -149,6 +149,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         bert_word_to_subtok_start_map = self.retokenize_bert(bert_subtok_to_word_map)
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
         bert_word_to_subtok_start_map = np.array(bert_word_to_subtok_start_map)
+        print("len(orig_words)", len(orig_words))
         print("bert_word_to_subtok_start_map.shape", bert_word_to_subtok_start_map.shape)
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
         gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
@@ -246,7 +247,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         #                                                  all_anteced_span_idxs.shape[0] * all_anteced_span_idxs.shape[1]))
         s0_input = dataset, valid_map, all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]
         s0_scores = self.s0(s0_input)
-        if isinstance(alphas, int):
+        if isinstance(alphas, int) or isinstance(alphas, float):
             s0_scores *= alphas
             if debug:
                 clusters = example["clusters"]
