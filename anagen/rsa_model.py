@@ -3,6 +3,7 @@ import numpy as np
 import logging
 import tqdm
 import time
+import sys
 
 from anagen.utils import combine_subtokens, batch_to_device
 from anagen.dataset import AnagenDataset, AnagenDocument, AnagenExample, collate, GPT2_EOS_TOKEN_ID
@@ -114,6 +115,12 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         # accept a sequence of alphas to run grid search
         assert isinstance(alphas, float) or isinstance(alphas, int)  \
             or isinstance(alphas, list) or isinstance(alphas, tuple)
+
+        if debug:
+            if debug_out_file:
+                debug_f = open("debug_out_file", "w")
+            else:
+                debug_f = sys.stdout
 
         # Series of tokenization and data preprocessing similar to AnagenDataset
         # initialize dataset on this document, use dataset object later to get
@@ -237,7 +244,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                     anaphor_end = gpt_span_ends[anaphor_span_idx]
                     anaphor_str = document.decode(anaphor_start, anaphor_end)
 
-                    # self._log_debug("anteced stats: (start, end) str: s0_score + score_before = score_after")
+                    # debug_f.write("anteced stats: (start, end) str: s0_score + score_before = score_after")
                     anteced_arr_idxs = valid_anteced_arr_idxs[anaphor_span_idx]
                     scores = s0_scores[anaphor_span_idx][valid_map[anaphor_span_idx]]
                     exs = valid_examples[anaphor_span_idx]
@@ -247,7 +254,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         score_after = score_before + scores[i]
                         anteced_str = document.decode(ex.anteced_start, ex.anteced_end)
                         anteced_strs.append(anteced_str)
-                        # self._log_debug("  anteced (%d, %d) %s: %.2f + %.2f = %.2f" % (
+                        # debug_f.write("  anteced (%d, %d) %s: %.2f + %.2f = %.2f" % (
                         #     ex.anteced_start, ex.anteced_end, anteced_str,
                         #     scores[i], score_before, score_after))
 
@@ -258,11 +265,11 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                     if new_best_anteced_i != prev_best_anteced_i:
                         ctx_seg_start_idx_1 = exs[prev_best_anteced_i].ctx_seg_start_idx
                         ctx_start_1 = document.segment_starts[ctx_seg_start_idx_1]
-                        self._log_debug("*******************")
-                        self._log_debug("anaphor (%d, %d) %s" % (anaphor_start, anaphor_end, anaphor_str))
-                        self._log_debug("  BEST ANTECED CHANGED:")
-                        self._log_debug("  anteced (start, end) str: s0_score + score_before = score_after")
-                        self._log_debug("  prev best in ctx: (%d, %d) %s: %.2f + %.2f = %.2f" % (
+                        debug_f.write("*******************\n")
+                        debug_f.write("anaphor (%d, %d) %s\n" % (anaphor_start, anaphor_end, anaphor_str))
+                        debug_f.write("  BEST ANTECED CHANGED:\n")
+                        debug_f.write("  anteced (start, end) str: s0_score + score_before = score_after\n")
+                        debug_f.write("  prev best in ctx: (%d, %d) %s: %.2f + %.2f = %.2f\n" % (
                             exs[prev_best_anteced_i].anteced_start - ctx_start_1,
                             exs[prev_best_anteced_i].anteced_end - ctx_start_1,
                             anteced_strs[prev_best_anteced_i],
@@ -272,7 +279,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         ))
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
-                        self._log_debug("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f" % (
+                        debug_f.write("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f\n" % (
                             exs[new_best_anteced_i].anteced_start - ctx_start_2,
                             exs[new_best_anteced_i].anteced_end - ctx_start_2,
                             anteced_strs[new_best_anteced_i],
@@ -281,7 +288,9 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             new_scores[new_best_anteced_i]
                         ))
                         ctx_end_2 = exs[new_best_anteced_i].anaphor_start - 1
-                        self._log_debug("  [context] %s" % document.decode(ctx_start_2, ctx_end_2))
+                        debug_f.write("  [context] %s\n" % document.decode(ctx_start_2, ctx_end_2))
+                if debug_out_file:
+                    debug_f.close()
 
             # modify scores
             l1_scores = np.copy(top_antecedent_scores)
@@ -395,7 +404,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
         with torch.no_grad():
             inputs = {"input_ids": generated}
             outputs = self.model(**inputs)
-            self._log_debug(outputs[0].shape)
+            debug_f.write(outputs[0].shape)
             next_token_logits = outputs[0][-1, :]
 
     def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores):
@@ -448,14 +457,14 @@ class GPTSpeakerRSAModel(CorefRSAModel):
             if anteced_span_idx >= anaphor_span_idx:
                 anteced_start = int(top_span_starts[anteced_span_idx])
                 anteced_end = int(top_span_ends[anteced_span_idx])
-                # self._log_debug("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+                # debug_f.write("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
                 continue
             elif anteced_span_idx >= 0:
                 # assume arr idx is the correct ordering of spans start token, and then by length
                 anteced_start = int(top_span_starts[anteced_span_idx])
                 anteced_end = int(top_span_ends[anteced_span_idx])
                 ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, anteced_start)
-                # self._log_debug("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+                # debug_f.write("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
                 all_anteced_valid_span_idxs.append(anteced_span_idx)
                 all_anteced_starts.append(anteced_start)
                 all_anteced_strs.append(" ".join(raw_bert_toks[anteced_start:anteced_end+1]))
@@ -464,7 +473,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                 all_anteced_valid_span_idxs.append(-1)
                 all_anteced_starts.append(-1)
                 all_anteced_strs.append("<Null anteced>")
-                # self._log_debug("  Null anteced")
+                # debug_f.write("  Null anteced")
 
             ctx_tokens = raw_bert_toks[ctx_start:anaphor_start]
 
@@ -481,8 +490,8 @@ class GPTSpeakerRSAModel(CorefRSAModel):
 
     def prepare_batch(self, context_strs, anaphor_str):
         anaphor_toks = self.tokenizer.encode(anaphor_str)
-        # self._log_debug("anaphor_toks %s" % anaphor_toks)
-        # self._log_debug("anaphor_toks in str: %s" % self.tokenizer.convert_ids_to_tokens(anaphor_toks))
+        # debug_f.write("anaphor_toks %s" % anaphor_toks)
+        # debug_f.write("anaphor_toks in str: %s" % self.tokenizer.convert_ids_to_tokens(anaphor_toks))
         anaphor_len = len(anaphor_toks)
         input_toks = [(self.tokenizer.encode(s) + anaphor_toks) for s in context_strs]
         # truncate from left to ensure maximum input sequence length
@@ -543,17 +552,17 @@ class GPTSpeakerRSAModel(CorefRSAModel):
             scores = scrambled_scores[unscramble_idxs]
             return scores
 
-            # self._log_debug("lengths", lengths)
-            # self._log_debug("flat_anaphor_idxs", flat_anaphor_idxs)
-            # self._log_debug("check flat_anaphor_idxs.shape, expected [%d], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_idxs.shape))
-            # self._log_debug("check flat_anaphor_logits.shape, expected [%d,vocab], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_logits.shape))
+            # debug_f.write("lengths", lengths)
+            # debug_f.write("flat_anaphor_idxs", flat_anaphor_idxs)
+            # debug_f.write("check flat_anaphor_idxs.shape, expected [%d], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_idxs.shape))
+            # debug_f.write("check flat_anaphor_logits.shape, expected [%d,vocab], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_logits.shape))
 
 
 
         # old L1 fxn
     # def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores):
     #     # TODO: apply scores from s0 to top_antecedent_scores
-    #     self._log_debug("********** Running l1 ***********")
+    #     debug_f.write("********** Running l1 ***********")
     #     # get top k antecedents
     #     all_anteced_arr_idxs = self.top_k_idxs_along_axis1(top_antecedent_scores)
     #     # get span indeces for each one, null anteced has span idx -1.
@@ -587,14 +596,14 @@ class GPTSpeakerRSAModel(CorefRSAModel):
     #             if anteced_span_idx >= anaphor_span_idx:
     #                 anteced_start = int(top_span_starts[anteced_span_idx])
     #                 anteced_end = int(top_span_ends[anteced_span_idx])
-    #                 # self._log_debug("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+    #                 # debug_f.write("  invalid anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
     #                 continue
     #             elif anteced_span_idx >= 0:
     #                 # assume arr idx is the correct ordering of spans start token, and then by length
     #                 anteced_start = int(top_span_starts[anteced_span_idx])
     #                 anteced_end = int(top_span_ends[anteced_span_idx])
     #                 ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, anteced_start)
-    #                 # self._log_debug("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
+    #                 # debug_f.write("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
     #                 all_anteced_valid_span_idxs.append(anteced_span_idx)
     #                 all_anteced_starts.append(anteced_start)
     #                 all_anteced_strs.append(" ".join(raw_bert_toks[anteced_start:anteced_end+1]))
@@ -603,7 +612,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
     #                 all_anteced_valid_span_idxs.append(-1)
     #                 all_anteced_starts.append(-1)
     #                 all_anteced_strs.append("<Null anteced>")
-    #                 # self._log_debug("  Null anteced")
+    #                 # debug_f.write("  Null anteced")
     #
     #             ctx_tokens = raw_bert_toks[ctx_start:anaphor_start]
     #
@@ -621,12 +630,12 @@ class GPTSpeakerRSAModel(CorefRSAModel):
     #         top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
     #
             # # debug to see scores
-            # self._log_debug("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
+            # debug_f.write("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
             # for i, (input_str, span_idx, start_idx, antecstr) in \
             #     enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
             #     score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
             #     score_after = score_before + scores[i]
-            #     self._log_debug("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
+            #     debug_f.write("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
             #         span_idx, start_idx, antecstr,
             #         scores[i], score_before, score_after))
             #
@@ -635,11 +644,11 @@ class GPTSpeakerRSAModel(CorefRSAModel):
             # new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
             # new_best_anteced_i = np.argmax(new_scores)
             # if new_best_anteced_i != prev_best_anteced_i:
-            #     self._log_debug("*******************")
-            #     self._log_debug("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
-            #     self._log_debug("  BEST ANTECED CHANGED:")
-            #     self._log_debug("  stats: span_idx (start) str: s0_score/score_before/score_after")
-            #     self._log_debug("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+            #     debug_f.write("*******************")
+            #     debug_f.write("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
+            #     debug_f.write("  BEST ANTECED CHANGED:")
+            #     debug_f.write("  stats: span_idx (start) str: s0_score/score_before/score_after")
+            #     debug_f.write("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
             #         all_anteced_valid_span_idxs[prev_best_anteced_i],
             #         all_anteced_starts[prev_best_anteced_i],
             #         old_scores[prev_best_anteced_i],
@@ -648,7 +657,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
             #         all_anteced_strs[prev_best_anteced_i],
             #         all_input_strs[prev_best_anteced_i]
             #     ))
-            #     self._log_debug("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+            #     debug_f.write("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
             #         all_anteced_valid_span_idxs[new_best_anteced_i],
             #         all_anteced_starts[new_best_anteced_i],
             #         old_scores[new_best_anteced_i],
