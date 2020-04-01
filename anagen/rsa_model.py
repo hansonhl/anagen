@@ -305,7 +305,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             new_scores[prev_best_anteced_i]
                         ))
                         if anteced_strs[prev_best_anteced_i] != "<null>":
-
+                            pass
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
                         debug_f.write("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f\n" % (
