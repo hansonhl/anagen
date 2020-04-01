@@ -104,7 +104,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             if word_id != prev_word_id:
                 bert_word_to_subtok_start_map.append(subtok_id)
                 if prev_word_id != -1:
-                    bert_word_to_subtok_end_map.append(bert_subtok_to_word_map[subtok_id-1])
+                    bert_word_to_subtok_end_map.append(subtok_id-1)
             prev_word_id = word_id
         bert_word_to_subtok_end_map.append(len(bert_subtok_to_word_map)-1)
         return bert_word_to_subtok_start_map, bert_word_to_subtok_end_map
