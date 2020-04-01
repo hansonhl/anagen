@@ -313,9 +313,9 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             prev_best_anteced_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[exs[prev_best_anteced_i].anteced_start]]
                             prev_best_anteced_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[exs[prev_best_anteced_i].anteced_end]]
                             if in_same_cluster(clusters, prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
-                                debug_f.write("  ### (%d, %d) in same cluster as anaphor ###\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end))
+                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
                             else:
-                                debug_f.write("  @@@ (%d, %d) not in same cluster as anphor @@@\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end))
+                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
 
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
@@ -331,9 +331,9 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             new_best_anteced_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[exs[new_best_anteced_i].anteced_start]]
                             new_best_anteced_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[exs[new_best_anteced_i].anteced_end]]
                             if in_same_cluster(clusters, new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
-                                debug_f.write("  ### (%d, %d) in same cluster as anaphor ###\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end))
+                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
                             else:
-                                debug_f.write("  @@@ (%d, %d) not in same cluster as anphor @@@\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end))
+                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
                         ctx_end_2 = exs[new_best_anteced_i].anaphor_start - 1
                         debug_f.write("  [context] %s\n" % document.decode(ctx_start_2, ctx_end_2))
                 if debug_out_file:
