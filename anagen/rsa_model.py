@@ -251,6 +251,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             s0_scores *= alphas
             if debug:
                 clusters = example["clusters"]
+                print(clusters)
                 valid_map = np.array(valid_map).reshape((all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]))
                 # debug to see scores
                 for anaphor_span_idx in range(len(gpt_span_starts)):
