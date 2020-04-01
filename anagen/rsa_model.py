@@ -94,11 +94,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             word_idx += 1
         return gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map
 
-    def retokenize_bert(self, bert_subtok_to_word_map):
+    def retokenize_bert(self, bert_toks, bert_subtok_to_word_map):
         bert_word_to_subtok_start_map = []
         bert_word_to_subtok_end_map = []
         prev_word_id = -1
         for subtok_id, word_id in enumerate(bert_subtok_to_word_map):
+            if bert_toks[subtok_id] == "[CLS]" or bert_toks[subtok_id] == "[SEP]":
+                continue
             if word_id != prev_word_id:
                 bert_word_to_subtok_start_map.append(subtok_id)
                 if prev_word_id != -1:
@@ -154,14 +156,14 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         bert_subtok_to_word_map = example["subtoken_map"]
         orig_words = combine_subtokens(bert_toks, bert_subtok_to_word_map, is_bert=True)
         gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map = self.retokenize(orig_words)
-        bert_word_to_subtok_start_map, bert_word_to_subtok_end_map = self.retokenize_bert(bert_subtok_to_word_map)
+        bert_word_to_subtok_start_map, bert_word_to_subtok_end_map = self.retokenize_bert(bert_toks, bert_subtok_to_word_map)
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
         bert_word_to_subtok_start_map = np.array(bert_word_to_subtok_start_map)
         bert_word_to_subtok_end_map = np.array(bert_word_to_subtok_end_map)
         print("len(orig_words)", len(orig_words))
-        print("bert_subtok_to_word_map[:12]", bert_subtok_to_word_map[:12])
-        print("bert_word_to_subtok_start_map[:10]", bert_word_to_subtok_start_map[:10])
-        print("bert_word_to_subtok_end_map[:10]", bert_word_to_subtok_end_map[:10])
+        print("bert_subtok_to_word_map[:40]", bert_subtok_to_word_map[:40])
+        print("bert_word_to_subtok_start_map[:30]", bert_word_to_subtok_start_map[:30])
+        print("bert_word_to_subtok_end_map[:30]", bert_word_to_subtok_end_map[:30])
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
         gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
         gpt_word_to_subtok_end_map = np.array(gpt_word_to_subtok_end_map)
