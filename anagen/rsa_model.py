@@ -90,6 +90,15 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             word_idx += 1
         return gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map
 
+    def retokenize_bert(self, bert_subtok_to_word_map):
+        bert_word_to_subtok_start_map = []
+        prev_word_id = -1
+        for subtok_id, word_id in enumerate(bert_subtok_to_word_map):
+            if word_id != prev_word_id:
+                bert_word_to_subtok_start_map.append(subtok_id)
+            prev_word_id = word_id
+        return bert_word_to_subtok_start_map
+
     def bert_to_orig_speakers(self, speakers, subtoken_map):
         assert len(speakers) == len(subtoken_map)
         res = []
@@ -137,7 +146,10 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         bert_subtok_to_word_map = example["subtoken_map"]
         orig_words = combine_subtokens(bert_toks, bert_subtok_to_word_map, is_bert=True)
         gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map = self.retokenize(orig_words)
+        bert_word_to_subtok_start_map = self.retokenize_bert(bert_subtok_to_word_map)
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
+        bert_word_to_subtok_start_map = np.array(bert_word_to_subtok_start_map)
+        print("bert_word_to_subtok_start_map.shape", bert_word_to_subtok_start_map.shape) 
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
         gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
         gpt_word_to_subtok_end_map = np.array(gpt_word_to_subtok_end_map)
@@ -237,6 +249,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         if isinstance(alphas, int):
             s0_scores *= alphas
             if debug:
+                clusters = example["clusters"]
                 valid_map = np.array(valid_map).reshape((all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]))
                 # debug to see scores
                 for anaphor_span_idx in range(len(gpt_span_starts)):
