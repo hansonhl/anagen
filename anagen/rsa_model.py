@@ -54,6 +54,10 @@ class CorefRSAModel:
            top_antecedents, top_antecedent_scores, alphas=1.0):
         raise NotImplementedError()
 
+def in_same_cluster(clusters, span1_start, span1_end, span2_start, span2_end):
+    clusters_with_span1 = [[span1_start, span1_end] in c for c in clusters]
+    clusters_with_span2 = [[span2_start, span2_end] in c for c in clusters]
+    return any(x and y for x, y in zip(clusters_with_span1, clusters_with_span2))
 
 class RNNSpeakerRSAModel(CorefRSAModel):
     def __init__(self, model_dir, batch_size, max_segment_len, anteced_top_k,
@@ -92,12 +96,16 @@ class RNNSpeakerRSAModel(CorefRSAModel):
 
     def retokenize_bert(self, bert_subtok_to_word_map):
         bert_word_to_subtok_start_map = []
+        bert_word_to_subtok_end_map = []
         prev_word_id = -1
         for subtok_id, word_id in enumerate(bert_subtok_to_word_map):
             if word_id != prev_word_id:
                 bert_word_to_subtok_start_map.append(subtok_id)
+                if prev_word_id != -1:
+                    bert_word_to_subtok_end_map.append(bert_subtok_to_word_map[subtoken-1])
             prev_word_id = word_id
-        return bert_word_to_subtok_start_map
+        bert_word_to_subtok_end_map.append(len(bert_subtok_to_word_map)-1)
+        return bert_word_to_subtok_start_map, bert_word_to_subtok_end_map
 
     def bert_to_orig_speakers(self, speakers, subtoken_map):
         assert len(speakers) == len(subtoken_map)
@@ -146,11 +154,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         bert_subtok_to_word_map = example["subtoken_map"]
         orig_words = combine_subtokens(bert_toks, bert_subtok_to_word_map, is_bert=True)
         gpt_toks, gpt_subtok_to_word_map, gpt_word_to_subtok_start_map, gpt_word_to_subtok_end_map = self.retokenize(orig_words)
-        bert_word_to_subtok_start_map = self.retokenize_bert(bert_subtok_to_word_map)
+        bert_word_to_subtok_start_map, bert_word_to_subtok_end_map = self.retokenize_bert(bert_subtok_to_word_map)
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
         bert_word_to_subtok_start_map = np.array(bert_word_to_subtok_start_map)
+        bert_word_to_subtok_end_map = np.array(bert_word_to_subtok_end_map)
         print("len(orig_words)", len(orig_words))
         print("bert_word_to_subtok_start_map.shape", bert_word_to_subtok_start_map.shape)
+        print("bert_word_to_subtok_end_map.shape", bert_word_to_subtok_end_map.shape)
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
         gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
         gpt_word_to_subtok_end_map = np.array(gpt_word_to_subtok_end_map)
@@ -257,6 +267,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                 for anaphor_span_idx in range(len(gpt_span_starts)):
                     anaphor_start = gpt_span_starts[anaphor_span_idx]
                     anaphor_end = gpt_span_ends[anaphor_span_idx]
+                    anaphor_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[anaphor_start]]
+
                     anaphor_str = document.decode(anaphor_start, anaphor_end)
 
                     # debug_f.write("anteced stats: (start, end) str: s0_score + score_before = score_after")
@@ -292,6 +304,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             old_scores[prev_best_anteced_i],
                             new_scores[prev_best_anteced_i]
                         ))
+                        if anteced_strs[prev_best_anteced_i] != "<null>":
+
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
                         debug_f.write("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f\n" % (
