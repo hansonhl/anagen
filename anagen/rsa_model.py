@@ -120,7 +120,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         return res
 
     def l1(self, example, top_span_starts, top_span_ends, top_antecedents,
-           top_antecedent_scores, alphas=1.0, debug=False):
+           top_antecedent_scores, alphas=1.0, debug=False, debug_out_file=None):
         # accept a sequence of alphas to run grid search
         assert isinstance(alphas, float) or isinstance(alphas, int)  \
             or isinstance(alphas, list) or isinstance(alphas, tuple)
@@ -149,7 +149,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         bert_word_to_subtok_start_map = self.retokenize_bert(bert_subtok_to_word_map)
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
         bert_word_to_subtok_start_map = np.array(bert_word_to_subtok_start_map)
-        print("bert_word_to_subtok_start_map.shape", bert_word_to_subtok_start_map.shape) 
+        print("bert_word_to_subtok_start_map.shape", bert_word_to_subtok_start_map.shape)
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
         gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
         gpt_word_to_subtok_end_map = np.array(gpt_word_to_subtok_end_map)
