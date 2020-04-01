@@ -160,10 +160,10 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         bert_subtok_to_word_map = np.array(bert_subtok_to_word_map)
         bert_word_to_subtok_start_map = np.array(bert_word_to_subtok_start_map)
         bert_word_to_subtok_end_map = np.array(bert_word_to_subtok_end_map)
-        print("len(orig_words)", len(orig_words))
-        print("bert_subtok_to_word_map[-40:]", bert_subtok_to_word_map[-40:])
-        print("bert_word_to_subtok_start_map[-30:]", bert_word_to_subtok_start_map[-30:])
-        print("bert_word_to_subtok_end_map[-30:]", bert_word_to_subtok_end_map[-30:])
+        # print("len(orig_words)", len(orig_words))
+        # print("bert_subtok_to_word_map[-40:]", bert_subtok_to_word_map[-40:])
+        # print("bert_word_to_subtok_start_map[-30:]", bert_word_to_subtok_start_map[-30:])
+        # print("bert_word_to_subtok_end_map[-30:]", bert_word_to_subtok_end_map[-30:])
         gpt_subtok_to_word_map = np.array(gpt_subtok_to_word_map)
         gpt_word_to_subtok_start_map = np.array(gpt_word_to_subtok_start_map)
         gpt_word_to_subtok_end_map = np.array(gpt_word_to_subtok_end_map)
@@ -264,7 +264,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             s0_scores *= alphas
             if debug:
                 clusters = example["clusters"]
-                print(clusters)
+                # print(clusters)
                 valid_map = np.array(valid_map).reshape((all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]))
                 # debug to see scores
                 for anaphor_span_idx in range(len(gpt_span_starts)):
