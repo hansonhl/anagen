@@ -268,7 +268,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                     anaphor_start = gpt_span_starts[anaphor_span_idx]
                     anaphor_end = gpt_span_ends[anaphor_span_idx]
                     anaphor_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[anaphor_start]]
-
+                    anaphor_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[anaphor_end]]
                     anaphor_str = document.decode(anaphor_start, anaphor_end)
 
                     # debug_f.write("anteced stats: (start, end) str: s0_score + score_before = score_after")
@@ -305,7 +305,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             new_scores[prev_best_anteced_i]
                         ))
                         if anteced_strs[prev_best_anteced_i] != "<null>":
-                            pass
+                            prev_best_anteced_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[exs[prev_best_anteced_i].anteced_start]]
+                            prev_best_anteced_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[exs[prev_best_anteced_i].anteced_end]]
+                            if in_same_cluster(clusters, prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
+                                debug_f.write("  ### in same cluster as anaphor ###\n")
+                            else:
+                                debug_f.write("  @@@ not in same cluster as anphor @@@\n")
+
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
                         debug_f.write("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f\n" % (
@@ -316,6 +322,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             old_scores[new_best_anteced_i],
                             new_scores[new_best_anteced_i]
                         ))
+                        if anteced_strs[new_best_anteced_i] != "<null>":
+                            new_best_anteced_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[exs[new_best_anteced_i].anteced_start]]
+                            new_best_anteced_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[exs[new_best_anteced_i].anteced_end]]
+                            if in_same_cluster(clusters, new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
+                                debug_f.write("  ### in same cluster as anaphor ###\n")
+                            else:
+                                debug_f.write("  @@@ not in same cluster as anphor @@@\n")
                         ctx_end_2 = exs[new_best_anteced_i].anaphor_start - 1
                         debug_f.write("  [context] %s\n" % document.decode(ctx_start_2, ctx_end_2))
                 if debug_out_file:
