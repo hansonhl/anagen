@@ -293,11 +293,11 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         else:
             all_l1_scores = []
             for alpha in alphas:
-                s0_scores *= alpha
+                curr_s0_scores = s0_scores * alpha
                 l1_scores = np.copy(top_antecedent_scores)
                 for anaphor_span_idx in range(len(gpt_span_starts)):
                     anteced_idxs = all_anteced_arr_idxs[anaphor_span_idx]
-                    l1_scores[anaphor_span_idx][anteced_idxs] += s0_scores[anaphor_span_idx]
+                    l1_scores[anaphor_span_idx][anteced_idxs] += curr_s0_scores[anaphor_span_idx]
                 all_l1_scores.append(l1_scores)
             return all_l1_scores
 
