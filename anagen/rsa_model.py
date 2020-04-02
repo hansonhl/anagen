@@ -137,7 +137,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
 
         if debug:
             if debug_out_file:
-                debug_f = open("debug_out_file", "w")
+                debug_f = open(debug_out_file, "a")
             else:
                 debug_f = sys.stdout
 
