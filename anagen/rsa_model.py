@@ -137,9 +137,11 @@ class RNNSpeakerRSAModel(CorefRSAModel):
 
         if debug:
             if debug_out_file:
-                debug_f = open(debug_out_file, "a")
+                debug_f = open(debug_out_file+"_verbose.txt", "a")
+                debug_changes_f = open(debug_out_file+"_changes.txt", "w")
             else:
                 debug_f = sys.stdout
+                debug_changes_f = sys.stdout
 
         # Series of tokenization and data preprocessing similar to AnagenDataset
         # initialize dataset on this document, use dataset object later to get
@@ -264,6 +266,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
             s0_scores *= alphas
             if debug:
                 clusters = example["clusters"]
+                changes = []
                 # print(clusters)
                 valid_map = np.array(valid_map).reshape((all_anteced_span_idxs.shape[0], all_anteced_span_idxs.shape[1]))
                 # debug to see scores
@@ -312,10 +315,15 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         if anteced_strs[prev_best_anteced_i] != "<null>":
                             prev_best_anteced_bert_start = bert_word_to_subtok_start_map[gpt_subtok_to_word_map[exs[prev_best_anteced_i].anteced_start]]
                             prev_best_anteced_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[exs[prev_best_anteced_i].anteced_end]]
+
                             if in_same_cluster(clusters, prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
                                 debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                prev_state = 1
                             else:
                                 debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                prev_state = 0
+                        else:
+                            prev_state = -1
 
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
@@ -332,12 +340,21 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             new_best_anteced_bert_end = bert_word_to_subtok_end_map[gpt_subtok_to_word_map[exs[new_best_anteced_i].anteced_end]]
                             if in_same_cluster(clusters, new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
                                 debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                new_state = 1
                             else:
                                 debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                new_state = 0
+                        else:
+                            new_state = -1
                         ctx_end_2 = exs[new_best_anteced_i].anaphor_start - 1
                         debug_f.write("  [context] %s\n" % document.decode(ctx_start_2, ctx_end_2))
+                        changes.append((prev_state, new_state))
+
+                for change in changes:
+                    debug_changes_f.write("%d, %d\n" % (change[0], change[1]))
                 if debug_out_file:
                     debug_f.close()
+                    debug_changes_f.close()
 
             # modify scores
             l1_scores = np.copy(top_antecedent_scores)
