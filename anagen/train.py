@@ -12,13 +12,16 @@ logger = logging.getLogger(__name__)
 
 def parse_train_args(parser):
     # data input
-    parser.add_argument("--train_jsonlines", type=str)
-    parser.add_argument("--eval_jsonlines", type=str)
+    parser.add_argument("--train_input_file", type=str)
+    parser.add_argument("--eval_input_file", type=str)
     parser.add_argument("--train_batch_size", type=int, default=16)
     parser.add_argument("--eval_batch_size", type=int, default=16)
     parser.add_argument("--max_span_width", type=int, default=10)
     parser.add_argument("--max_num_ctxs_in_batch", type=int, default=8)
     parser.add_argument("--max_segment_len", type=int, default=512)
+    parser.add_argument("--data_augment", type=str, choices=[None, "null_from_l0"])
+    parser.add_argument("--train_data_augment_file", type=str)
+    parser.add_argument("--eval_data_augment_file", type=str)
 
     # trained model save/load
     parser.add_argument("--model_load_path", type=str)

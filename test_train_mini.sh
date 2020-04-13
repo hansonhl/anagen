@@ -1,8 +1,8 @@
 #!/bin/bash
 
 python run_train.py \
-    --train_jsonlines data/dev.english.256.twodoc.anagen.jsonlines \
-    --eval_jsonlines data/dev.english.256.twodoc.anagen.jsonlines \
+    --train_input_file data/dev.english.256.twodoc.anagen.jsonlines \
+    --eval_input_file data/dev.english.256.twodoc.anagen.jsonlines \
     --gpu \
     --train_batch_size 8 \
     --max_num_ctxs_in_batch 1 \
@@ -11,5 +11,8 @@ python run_train.py \
     --sum_start_end_emb \
     --use_speaker_info \
     --use_distance_info \
+    --data_augment "null_from_l0" \
+    --train_data_augment_file data/bert_base.dev_head2.npy \
+    --eval_data_augment_file data/bert_base.dev_head2.npy \
     --model_save_path output/test_model_save \
     --eval_and_save_by_epoch

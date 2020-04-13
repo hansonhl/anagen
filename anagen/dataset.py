@@ -1,9 +1,12 @@
 import torch
 import json
+import random
 import numpy as np
+
 from anagen.utils import flatten, combine_subtokens
 from torch.utils.data import Dataset
 from transformers import GPT2Tokenizer
+from anagen.utils import invert_subtoken_map
 
 GPT2_EOS_TOKEN_ID = 50256
 MAX_NUM_SPEAKERS = 20
@@ -92,6 +95,7 @@ class AnagenExample:
                self.anteced_start, self.anteced_end,
                self.anaphor_start, self.anaphor_end)
 
+
 """ Dataset class to input examples for literal speaker of anaphor generation
     task. Takes jsonlines file constructed by anagen_minimize.py as input.
     Initialization:
@@ -108,39 +112,58 @@ class AnagenExample:
         examples in order of decreasing anaphor length; adds padding to context
         and anaphor sequences. """
 class AnagenDataset(Dataset):
-    def __init__(self, jsonlines_file=None, batch_size=32, max_span_width=10,
+    def __init__(self, input_file=None, data_augment=None, data_augment_file=None,
+                 batch_size=32, max_span_width=10,
                  max_num_ctxs_in_batch=8, max_segment_len=512,
-                 use_speaker_info=False, tokenizer=None):
+                 use_speaker_info=False, shuffle=False, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
         self.batch_size = batch_size
         self.max_span_width = max_span_width
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
-        self.max_segment_len = 512
+        self.max_segment_len = max_segment_len
         self.use_speaker_info = use_speaker_info
+        self.shuffle = shuffle
+
         self.num_examples = 0
+        self.num_null_examples = 0
         if tokenizer:
             self.tokenizer = tokenizer
         else:
             self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-        # just use print for now
-        if jsonlines_file:
-            print("Initializing dataset from %s" % jsonlines_file)
-            with open(jsonlines_file, "r") as f:
+        # just use print for debugging and logging purposes now
+        print("Initializing dataset from %s" % input_file)
+        print("Shuffling examples in each document" if self.shuffle else "Not shuffling examples in document")
+        if input_file and data_augment is None:
+            with open(input_file, "r") as f:
                 for line in f:
-                    self._process_jsonline(line)
+                    self._process_example(json.loads(line))
+        elif input_file:
+            if data_augment == "null_from_l0":
+                aug_f = open(data_augment_file, "rb")
+                data_f = open(input_file, "r")
 
-            print("Obtained %d examples in total" % self.num_examples)
-            print("Compiling batches, batch size %d..." % self.batch_size)
-            self._finalize_batches()
-            print("Compiled %d batches." % len(self.batches))
+                data_dicts = np.load(aug_f, allow_pickle=True).item().get("data_dicts")
+                for line_num, line in enumerate(data_f):
+                    self._process_example(json.loads(line), aug_data_dict=data_dicts[line_num])
+                data_f.close()
+                aug_f.close()
+            else:
+                raise NotImplementedError()
 
-            num_examples_in_batches = 0
-            for b in self.batches:
-                num_examples_in_batches += len(b[2])
-            print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
+        print("Obtained %d examples, %d (%.2f%%) examples with null antecedents" \
+              % (self.num_examples, self.num_null_examples, self.num_null_examples/self.num_examples*100))
+        print("Compiling batches, batch size %d..." % self.batch_size)
+        self._finalize_batches()
+        print("Compiled %d batches." % len(self.batches))
+
+        num_examples_in_batches = 0
+        for b in self.batches:
+            num_examples_in_batches += len(b[2])
+        print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
+
 
     """ Get the tokens of a span in a given document.
         See definition in AnagenDocument.decode()"""
@@ -161,9 +184,9 @@ class AnagenDataset(Dataset):
             ids = ids.tolist()
         return self.tokenizer.decode(ids)
 
+
     """ Go through jsonlines file and obtain training examples for anaphor generation"""
-    def _process_jsonline(self, line):
-        coref_example = json.loads(line)
+    def _process_example(self, coref_example, aug_data_dict=None):
         doc_key = coref_example["doc_key"]
         segments = coref_example["sentences"]
         speakers = flatten(coref_example["speakers"])
@@ -180,6 +203,7 @@ class AnagenDataset(Dataset):
 
         # get cluster information
         anagen_examples = []
+        anaphors_with_null_anteceds = set()
         for cluster in clusters:
             mentions = sorted(tuple(m) for m in cluster)
             for anaphor_i in range(len(mentions)):
@@ -194,11 +218,8 @@ class AnagenDataset(Dataset):
                     self.get_ctx_seg_idxs(segment_starts, anaphor_start)
                 if anaphor_i == 0:
                     # first mention
-                    ex = AnagenExample(doc_key,
-                                       -1, -1,
-                                       anaphor_start, anaphor_end,
-                                       ctx_seg_start_idx, ctx_seg_end_idx)
-                    anagen_examples.append(ex)
+                    anaphors_with_null_anteceds.add((anaphor_start, anaphor_end))
+                    # add to list of examples later
                 else:
                     for anteced_i in range(anaphor_i):
                         anteced_start = mentions[anteced_i][0]
@@ -213,7 +234,48 @@ class AnagenDataset(Dataset):
                                            ctx_seg_start_idx, ctx_seg_end_idx)
                         anagen_examples.append(ex)
 
+        # print("num of clusters", len(clusters))
+        # print("num of cluster first mentions", len(anaphors_with_null_anteceds))
+        # NOTE: there seem to be some clusters containing the same span as first
+        # mention, i.e. num first mentions < num clusters.
+
+        # test data dict
+        if aug_data_dict:
+            gpt_word_to_subtok_start, gpt_word_to_subtok_end = invert_subtoken_map(subtoken_map)
+            gpt_word_to_subtok_start = np.array(gpt_word_to_subtok_start)
+            gpt_word_to_subtok_end = np.array(gpt_word_to_subtok_end)
+            bert_subtok_to_word = np.array(aug_data_dict["example"]["subtoken_map"])
+            null_anteceds = np.argmax(aug_data_dict["top_antecedent_scores"], axis=1) == 0
+            bert_starts = aug_data_dict["top_span_starts"][null_anteceds]
+            bert_ends = aug_data_dict["top_span_ends"][null_anteceds]
+            word_starts = bert_subtok_to_word[bert_starts]
+            word_ends = bert_subtok_to_word[bert_ends]
+            # print("word_starts.shape", word_starts.shape)
+            # print("word_ends.shape", word_ends.shape)
+            gpt_starts = gpt_word_to_subtok_start[word_starts]
+            gpt_ends = gpt_word_to_subtok_end[word_ends]
+
+            # print("gpt_ends.shape", gpt_ends.shape)
+            # print("gpt_starts[:10]", gpt_starts[:10])
+            # print("gpt_ends[:10]", gpt_ends[:10])
+            # for start, end in zip(gpt_starts, gpt_ends):
+            #     print(document.decode(start, end))
+            anaphors_with_null_anteceds.update(zip(gpt_starts, gpt_ends))
+
+        for anaphor_start, anaphor_end in anaphors_with_null_anteceds:
+            ctx_seg_start_idx, ctx_seg_end_idx = \
+                self.get_ctx_seg_idxs(segment_starts, anaphor_start)
+            ex = AnagenExample(doc_key,
+                               -1, -1,
+                               anaphor_start, anaphor_end,
+                               ctx_seg_start_idx, ctx_seg_end_idx)
+            anagen_examples.append(ex)
+
+        if self.shuffle:
+            random.shuffle(anagen_examples)
+
         self.docs_to_examples[doc_key] = anagen_examples
+        self.num_null_examples += len(anaphors_with_null_anteceds)
         self.num_examples += len(anagen_examples)
 
 
@@ -338,10 +400,12 @@ class AnagenDataset(Dataset):
     'ctx_ids_padding_mask': [num_ctxs, max_ctx_len] mask indicating length
         variation in ctx, to pass into GPT2 model
     'ctx_lens': [num_ctxs,] length of ctxs
+    'ctx_starts': [batch_size,] starting idx of ctx for eachg example
     'ctx_set_idxs': [batch_size,] the corresponding ctx for each example
     'anteced_starts': [batch_size,] starting idxs of antecedents, indexed
         into each respective corresponding ctx
     'anteced_ends': [batch_size,] end idxs of antecedents
+    'anaphor_starts': [batch_size,] starting idxs anaphors
     'anaphor_ids': [batch_size, max_anaphor_len] id form of gold anaphor tokens
     'anaphor_ids_padding_mask': [batch_size, max_anaphor_len] mask
         indicating length variation in ctx, to pass into GPT2 model
@@ -353,11 +417,10 @@ def collate(batch):
         anaphor_starts, anaphor_ids, speaker_info = batch[0]
 
     # transform everything else into tensor form.
-    # All following tensors have dim [batch_size,]
+    # All following tensors have dim [batch_size,] unless noted
+    ctx_lens = torch.tensor([len(ctx_id) for ctx_id in ctx_ids]) # [num_ctxs,]
     ctx_starts = torch.tensor(ctx_starts)
     ctx_set_idxs = torch.tensor(ctx_set_idxs)
-    ctx_lens = torch.tensor([len(ctx_id) for ctx_id in ctx_ids])
-
     anteced_starts = torch.tensor(anteced_starts)
     anteced_ends = torch.tensor(anteced_ends)
     anaphor_starts = torch.tensor(anaphor_starts)
@@ -384,6 +447,7 @@ def collate(batch):
     # probably don't need this one
 
     # prepare anteced
+    sorted_ctx_starts = ctx_starts[scramble_idxs]
     sorted_ctx_set_idxs = ctx_set_idxs[scramble_idxs]
     sorted_anteced_starts = anteced_starts_in_ctx[scramble_idxs]
     sorted_anteced_ends = anteced_ends_in_ctx[scramble_idxs]
@@ -393,9 +457,9 @@ def collate(batch):
     batch_dict = {
         'doc_key': doc_key,
         'ctx_ids': padded_ctx_ids,
-        'ctx_ids_padding_mask': ctx_ids_padding_mask,
-        'ctx_starts': ctx_starts,
         'ctx_lens': ctx_lens,
+        'ctx_ids_padding_mask': ctx_ids_padding_mask,
+        'ctx_starts': sorted_ctx_starts,
         'ctx_set_idxs': sorted_ctx_set_idxs,
         'anteced_starts': sorted_anteced_starts,
         'anteced_ends': sorted_anteced_ends,

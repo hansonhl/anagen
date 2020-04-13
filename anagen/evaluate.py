@@ -73,11 +73,3 @@ def sample_sequence(model, length, context, num_samples=1, temperature=1,
                 next_token = torch.multinomial(F.softmax(filtered_logits, dim=-1), num_samples=1)
             generated = torch.cat((generated, next_token), dim=1)
     return generated
-
-def create_eval_csv(args, model, eval_dataset):
-    for i in len(eval_dataset):
-        doc_key, ctx_set, ctx_starts, ctx_ids, ctx_set_idxs, \
-            anteced_starts, anteced_ends, \
-            anaphor_starts, anaphor_ids = eval_dataset[i]
-
-    pass

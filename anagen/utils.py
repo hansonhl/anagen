@@ -1,9 +1,9 @@
-import numpy as np
 # from transformers import GPT2LMHeadModel, GPT2Tokenizer
-
 import json
 import torch
+import numpy as np
 import argparse
+import random
 
 def prune_antec_scores(top_antecedents, top_antecedent_scores, top_k):
     idxs = np.argpartition(top_antecedent_scores, top_k, axis=1)[:,-top_k:]
@@ -61,3 +61,28 @@ def combine_subtokens(toks, subtoken_map, is_bert=False):
         res.append(curr_word)
 
     return res
+
+def invert_subtoken_map(subtok_to_word, bert_toks=None):
+    word_to_subtok_start = []
+    word_to_subtok_end = []
+    prev_word_id = -1
+    for subtok_id, word_id in enumerate(subtok_to_word):
+        if bert_toks:
+            if bert_toks[subtok_id] == "[CLS]" or bert_toks[subtok_id] == "[SEP]":
+                continue
+        if word_id != prev_word_id:
+            word_to_subtok_start.append(subtok_id)
+            if prev_word_id != -1:
+                word_to_subtok_end.append(subtok_id-1)
+        prev_word_id = word_id
+    if bert_toks:
+        word_to_subtok_end.append(len(subtok_to_word)-2)
+    else:
+        word_to_subtok_end.append(len(subtok_to_word)-1)
+    return word_to_subtok_start, word_to_subtok_end
+
+def set_random_seed(seed):
+    print("setting random seed to %d" % seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
