@@ -166,7 +166,7 @@ class AnagenDataset(Dataset):
         print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
 
         if self.batches_only:
-            print("Clearing up intermediate data structures for dataset constructed from %d" % input_file)
+            print("Clearing up intermediate data structures for dataset constructed from %s" % input_file)
             del self.documents
             del self.docs_to_examples
 
