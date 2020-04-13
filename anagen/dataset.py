@@ -115,7 +115,7 @@ class AnagenDataset(Dataset):
     def __init__(self, input_file=None, data_augment=None, data_augment_file=None,
                  batch_size=32, max_span_width=10,
                  max_num_ctxs_in_batch=8, max_segment_len=512,
-                 use_speaker_info=False, shuffle=False, batches_only=False, tokenizer=None):
+                 use_speaker_info=False, shuffle=False, batches_only=True, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
@@ -166,6 +166,7 @@ class AnagenDataset(Dataset):
         print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
 
         if self.batches_only:
+            print("Clearing up intermediate data structures for dataset constructed from %d" % input_file)
             del self.documents
             del self.docs_to_examples
 
