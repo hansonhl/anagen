@@ -167,7 +167,7 @@ class AnagenDataset(Dataset):
 
         if self.batches_only:
             print("Clearing up intermediate data structures for dataset constructed from %s" % input_file)
-            del self.documents
+            del self.docs_to_examples
 
 
     """ Get the tokens of a span in a given document.
