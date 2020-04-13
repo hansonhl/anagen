@@ -115,7 +115,7 @@ class AnagenDataset(Dataset):
     def __init__(self, input_file=None, data_augment=None, data_augment_file=None,
                  batch_size=32, max_span_width=10,
                  max_num_ctxs_in_batch=8, max_segment_len=512,
-                 use_speaker_info=False, shuffle=False, tokenizer=None):
+                 use_speaker_info=False, shuffle=False, batches_only=False, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
         self.batches = []
@@ -125,6 +125,7 @@ class AnagenDataset(Dataset):
         self.max_segment_len = max_segment_len
         self.use_speaker_info = use_speaker_info
         self.shuffle = shuffle
+        self.batches_only = batches_only
 
         self.num_examples = 0
         self.num_null_examples = 0
@@ -163,6 +164,10 @@ class AnagenDataset(Dataset):
         for b in self.batches:
             num_examples_in_batches += len(b[2])
         print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
+
+        if self.batches_only:
+            del self.documents
+            del self.docs_to_examples
 
 
     """ Get the tokens of a span in a given document.
