@@ -24,7 +24,7 @@ def main():
                                   max_num_ctxs_in_batch=args.max_num_ctxs_in_batch,
                                   max_segment_len=args.max_segment_len,
                                   use_speaker_info=args.use_speaker_info,
-                                  shuffle=True,
+                                  shuffle=args.shuffle_examples,
                                   tokenizer=tokenizer)
 
     if args.eval_input_file:
