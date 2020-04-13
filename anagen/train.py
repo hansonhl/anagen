@@ -40,6 +40,8 @@ def parse_train_args(parser):
     parser.add_argument("--log_steps", type=int, default=100)
     parser.add_argument("--eval_and_save_by_epoch", action="store_true")
     parser.add_argument("--eval_and_save_by_steps", type=int)
+    parser.add_argument("--save_optimizer_state", action="store_true")
+    parser.add_argument("--save_latest_state", action="store_true")
 
     # model settings
     parser.add_argument("--gpt2_hidden_size", type=int, default=768)
@@ -147,14 +149,18 @@ def train(args, model, train_dataset, eval_dataset):
 
             if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:
                 best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
-                    best_loss, step, global_step, model, optimizer)
+                    best_loss, step, global_step, model,
+                    optimizer if args.save_optimizer_state else None,
+                    args.save_latest_state)
 
         if args.eval_and_save_by_epoch:
             best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
-                best_loss, step, global_step, model, optimizer)
+                best_loss, step, global_step, model,
+                optimizer if args.save_optimizer_state else None,
+                args.save_latest_state)
 
 def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch,
-                    global_step, model, optimizer):
+                    global_step, model, optimizer, save_latest_state):
     eval_results = evaluate(args, model, eval_dataset, global_step)
     eval_loss = eval_results["eval_loss"]
     if args.model_save_path:
@@ -164,17 +170,18 @@ def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch
             "eval_loss": eval_loss,
             "step_in_epoch": step_in_epoch,
             "global_step": global_step,
-            "model_state_dict": model.state_dict(), # just save everything for now
-            # "optimizer_state_dict": optimizer.state_dict()
+            "model_state_dict": model.state_dict()
         }
+        if optimizer:
+            model_checkpoint["optimizer_state_dict"] = optimizer.state_dict()
         if eval_loss < best_loss:
             best_save_path = args.model_save_path + "_best.ckpt"
             print("  current model has best eval loss, saving to %s" % best_save_path)
             torch.save(model_checkpoint, best_save_path)
-
-        # latest_save_path = args.model_save_path + "_latest.ckpt"
-        # print("  saving latest version of model to %s" % latest_save_path)
-        # torch.save(model_checkpoint, latest_save_path)
+        if save_latest_state:
+            latest_save_path = args.model_save_path + "_latest.ckpt"
+            print("  saving latest version of model to %s" % latest_save_path)
+            torch.save(model_checkpoint, latest_save_path)
     best_loss = min(eval_loss, best_loss)
     return best_loss
 
