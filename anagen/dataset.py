@@ -125,7 +125,6 @@ class AnagenDataset(Dataset):
         self.max_segment_len = max_segment_len
         self.use_speaker_info = use_speaker_info
         self.shuffle = shuffle
-        self.batches_only = batches_only
 
         self.num_examples = 0
         self.num_null_examples = 0
