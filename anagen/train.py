@@ -119,11 +119,10 @@ def train(args, model, train_dataset, eval_dataset):
     for epoch in range(args.train_epochs):
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
+            start_time = time.time()
             batch = batch_to_device(batch, device)
             model.zero_grad()
             model.train()
-
-            start_time = time.time()
 
             res_dict = model(batch)
             loss = res_dict["loss"]
