@@ -224,8 +224,7 @@ class AnagenDataset(Dataset):
                     for anteced_i in range(anaphor_i):
                         anteced_start = mentions[anteced_i][0]
                         anteced_end = mentions[anteced_i][1]
-                        if (self.max_span_width \
-                            and anteced_end - anteced_start + 1 > self.max_span_width) \
+                        if anteced_end - anteced_start + 1 > self.max_span_width \
                             or anteced_end >= anaphor_start:
                             continue
                         ex = AnagenExample(doc_key,
