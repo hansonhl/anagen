@@ -8,6 +8,8 @@ from torch.utils.data import Dataset
 from transformers import GPT2Tokenizer
 from anagen.utils import invert_subtoken_map
 
+from collections import Counter
+
 GPT2_EOS_TOKEN_ID = 50256
 MAX_NUM_SPEAKERS = 20
 
@@ -153,8 +155,13 @@ class AnagenDataset(Dataset):
             else:
                 raise NotImplementedError()
 
-        avg_anaphor_len = sum([ex.anaphor_end-ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs]) / self.num_examples
-        print("avg anaphor len %.2f" % avg_anaphor_len)
+        # analysis of sizes
+        # null_anaphor_lens = [ex.anaphor_end - ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs if ex.anteced_start == -1]
+        # null_anaphor_len_distr = Counter(null_anaphor_lens)
+        # print("lens of anaphors with null antecedents", null_anaphor_len_distr.most_common())
+        # avg_anaphor_len = sum([ex.anaphor_end-ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs]) / self.num_examples
+        # print("avg anaphor len %.2f" % avg_anaphor_len)
+
         print("Obtained %d examples, %d (%.2f%%) examples with null antecedents" \
               % (self.num_examples, self.num_null_examples, self.num_null_examples/self.num_examples*100))
         print("Compiling batches, batch size %d..." % self.batch_size)
@@ -262,6 +269,9 @@ class AnagenDataset(Dataset):
             anaphors_with_null_anteceds.update(zip(gpt_starts, gpt_ends))
 
         for anaphor_start, anaphor_end in anaphors_with_null_anteceds:
+            # IMPORTANT: cap max len of anaphor with null anteced at higher value (20)
+            if anaphor_end - anaphor_start + 1 > self.max_span_width * 2:
+                continue
             ctx_seg_start_idx, ctx_seg_end_idx = \
                 self.get_ctx_seg_idxs(segment_starts, anaphor_start)
             ex = AnagenExample(doc_key,
@@ -326,7 +336,7 @@ class AnagenDataset(Dataset):
         # for all ctx ranges (denoted by tuples) in batch, remove duplicates to
         # get a set, and for ranges with same start idx, keep only the longest
         # range.
-        anaphor_ids = []
+        all_anaphor_ids = []
         ctxs = [None for _ in range(len(doc.segment_toks))]
         for ex in batch:
             # print(ex)
@@ -334,14 +344,14 @@ class AnagenDataset(Dataset):
             anaphor_seg_idx, start_idx_in_seg, end_idx_in_seg = \
                 doc.index_in_segments(ex.anaphor_start, ex.anaphor_end)
 
-            anaphor_id = doc.segment_ids[anaphor_seg_idx][start_idx_in_seg:end_idx_in_seg+1]
-            # if isinstance(anaphor_ids, int):
-            #     anaphor_ids = [anaphor_ids]
+            anaphor_ids = doc.segment_ids[anaphor_seg_idx][start_idx_in_seg:end_idx_in_seg+1]
+            if isinstance(anaphor_ids, int):
+                anaphor_ids = [anaphor_ids]
             # if len(batch) == 1:
             #     print("segment_starts", doc.segment_starts)
             #     print("anaphor_seg_idx = %d, start_idx_in_seg = %d, end_idx_in_seg = %d" % (anaphor_seg_idx, start_idx_in_seg, end_idx_in_seg))
             #     print(anaphor_id)
-            anaphor_ids.append(anaphor_id)
+            all_anaphor_ids.append(anaphor_ids)
 
             ctx_seg_start_idx, ctx_seg_end_idx = ex.ctx_seg_start_idx, ex.ctx_seg_end_idx
             if ctxs[ctx_seg_start_idx] is None or ctxs[ctx_seg_start_idx][1] < ctx_seg_end_idx:
@@ -368,11 +378,11 @@ class AnagenDataset(Dataset):
 
         if self.use_speaker_info:
             batch_tuple = (doc_key, ctx_set, ctx_starts, ctx_set_idxs,
-                           anteced_starts, anteced_ends, anaphor_starts, anaphor_ids,
+                           anteced_starts, anteced_ends, anaphor_starts, all_anaphor_ids,
                            speaker_info)
         else:
             batch_tuple = (doc_key, ctx_set, ctx_starts, ctx_set_idxs,
-                           anteced_starts, anteced_ends, anaphor_starts, anaphor_ids)
+                           anteced_starts, anteced_ends, anaphor_starts, all_anaphor_ids)
         self.batches.append(batch_tuple)
 
     def __len__(self):
