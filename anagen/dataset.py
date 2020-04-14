@@ -153,6 +153,8 @@ class AnagenDataset(Dataset):
             else:
                 raise NotImplementedError()
 
+        avg_anaphor_len = sum([ex.anaphor_end-ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs]) / self.num_examples
+        print("avg anaphor len %.2f" % avg_anaphor_len)
         print("Obtained %d examples, %d (%.2f%%) examples with null antecedents" \
               % (self.num_examples, self.num_null_examples, self.num_null_examples/self.num_examples*100))
         print("Compiling batches, batch size %d..." % self.batch_size)
@@ -162,8 +164,6 @@ class AnagenDataset(Dataset):
         num_examples_in_batches = 0
         for b in self.batches:
             num_examples_in_batches += len(b[2])
-        print("Got %d examples in batches, expected %d" % (num_examples_in_batches, self.num_examples))
-
 
     """ Get the tokens of a span in a given document.
         See definition in AnagenDocument.decode()"""
