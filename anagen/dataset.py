@@ -115,7 +115,7 @@ class AnagenExample:
         and anaphor sequences. """
 class AnagenDataset(Dataset):
     def __init__(self, input_file=None, data_augment=None, data_augment_file=None,
-                 batch_size=32, max_span_width=10,
+                 batch_size=32, max_span_width=10, data_augment_max_span_width=10,
                  max_num_ctxs_in_batch=8, max_segment_len=256,
                  use_speaker_info=False, shuffle=False, tokenizer=None):
         self.documents = {}
@@ -129,7 +129,6 @@ class AnagenDataset(Dataset):
         self.shuffle = shuffle
 
         self.num_examples = 0
-        self.num_null_examples = 0
         if tokenizer:
             self.tokenizer = tokenizer
         else:
@@ -138,11 +137,12 @@ class AnagenDataset(Dataset):
         # just use print for debugging and logging purposes now
         print("Initializing dataset from %s" % input_file)
         print("Shuffling examples in each document" if self.shuffle else "Not shuffling examples in document")
-        if input_file and data_augment is None:
+        if data_augment is None:
             with open(input_file, "r") as f:
                 for line in f:
                     self._process_example(json.loads(line))
-        elif input_file:
+        else:
+            self.data_augment_max_span_width = data_augment_max_span_width
             if data_augment == "null_from_l0":
                 aug_f = open(data_augment_file, "rb")
                 data_f = open(input_file, "r")
@@ -161,6 +161,8 @@ class AnagenDataset(Dataset):
         # print("lens of anaphors with null antecedents", null_anaphor_len_distr.most_common())
         # avg_anaphor_len = sum([ex.anaphor_end-ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs]) / self.num_examples
         # print("avg anaphor len %.2f" % avg_anaphor_len)
+
+        self.num_null_examples = len([None for exs in self.docs_to_examples.values() for ex in exs if ex.anteced_start == -1])
 
         print("Obtained %d examples, %d (%.2f%%) examples with null antecedents" \
               % (self.num_examples, self.num_null_examples, self.num_null_examples/self.num_examples*100))
@@ -269,8 +271,8 @@ class AnagenDataset(Dataset):
             anaphors_with_null_anteceds.update(zip(gpt_starts, gpt_ends))
 
         for anaphor_start, anaphor_end in anaphors_with_null_anteceds:
-            # IMPORTANT: cap max len of anaphor with null anteced at higher value (20)
-            if anaphor_end - anaphor_start + 1 > self.max_span_width * 1.5:
+            # IMPORTANT: may cap max span width for null anaphors at
+            if anaphor_end - anaphor_start + 1 > self.data_augment_max_span_width:
                 continue
             ctx_seg_start_idx, ctx_seg_end_idx = \
                 self.get_ctx_seg_idxs(segment_starts, anaphor_start)
@@ -284,7 +286,6 @@ class AnagenDataset(Dataset):
             random.shuffle(anagen_examples)
 
         self.docs_to_examples[doc_key] = anagen_examples
-        self.num_null_examples += len(anaphors_with_null_anteceds)
         self.num_examples += len(anagen_examples)
 
 

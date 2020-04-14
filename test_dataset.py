@@ -7,8 +7,8 @@ from transformers import GPT2Tokenizer
 
 def main():
     # example_in_path = "data/dev.english.256.onedoc.anagen.jsonlines"
-    example_in_path = "/home/hansonlu/links/data/pp_coref_anagen/dev.english.256.anagen.jsonlines"
-    data_augment_file = "/home/hansonlu/anagen/coref/outputs/bert_base.eval_out.npy"
+    example_in_path = "/home/hansonlu/links/data/pp_coref_anagen/train.english.256.anagen.jsonlines"
+    data_augment_file = "/home/hansonlu/anagen/coref/outputs/bert_base.train_out.npy"
     # use tokenizer from pretrained model already downloaded to my machine
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
@@ -17,8 +17,9 @@ def main():
     dataset = AnagenDataset(input_file=example_in_path,
                             data_augment="null_from_l0",
                             data_augment_file=data_augment_file,
+                            data_augment_max_span_width=12,
                             batch_size=768,
-                            max_segment_len=512,
+                            max_segment_len=256,
                             max_span_width=10,
                             max_num_ctxs_in_batch=8,
                             use_speaker_info=True,
@@ -36,21 +37,23 @@ def main():
     anaphor_id_dim1_sum = 0
     ctx_id_dim0_sum = 0
     ctx_id_dim1_sum = 0
+    num_batches = 0
 
     for j, batch in enumerate(dataloader):
         anaphor_id_dim0_sum += batch["anaphor_ids"].shape[0]
         anaphor_id_dim1_sum += batch["anaphor_ids"].shape[1]
         ctx_id_dim0_sum += batch["ctx_ids"].shape[0]
         ctx_id_dim1_sum += batch["ctx_ids"].shape[1]
-        if j % 50 == 0:
-            print("*** checking batch %d *** " % j)
-
-            print("batch[anaphor_ids] [%d, %d] avg [%.2f, %.2f]" %
-                  (batch["anaphor_ids"].shape[0], batch["anaphor_ids"].shape[1],
-                   anaphor_id_dim0_sum / (j + 1), anaphor_id_dim1_sum / (j+1)))
-            print("batch[ctx_ids] [%d, %d] avg [%.2f, %.2f]" %
-                  (batch["ctx_ids"].shape[0], batch["ctx_ids"].shape[1],
-                   ctx_id_dim0_sum / (j + 1), ctx_id_dim1_sum / (j+1)))
+        num_batches += 1
+        # if j % 50 == 0:
+        #     print("*** checking batch %d *** " % j)
+        #
+        #     print("batch[anaphor_ids] [%d, %d] avg [%.2f, %.2f]" %
+        #           (batch["anaphor_ids"].shape[0], batch["anaphor_ids"].shape[1],
+        #            anaphor_id_dim0_sum / (j + 1), anaphor_id_dim1_sum / (j+1)))
+        #     print("batch[ctx_ids] [%d, %d] avg [%.2f, %.2f]" %
+        #           (batch["ctx_ids"].shape[0], batch["ctx_ids"].shape[1],
+        #            ctx_id_dim0_sum / (j + 1), ctx_id_dim1_sum / (j+1)))
         # print("batch[ctx_ids].shape", batch["ctx_ids"].shape)
         # print("batch[ctx_ids_padding_mask].shape", batch["ctx_ids_padding_mask"].shape)
         # print("batch[ctx_lens]", batch["ctx_lens"])
@@ -103,6 +106,11 @@ def main():
         #         break
         # if j == 3:
         #     return
+
+    print("batch[anaphor_ids] avg shape [%.2f, %.2f]" %
+          (anaphor_id_dim0_sum / num_batches, anaphor_id_dim1_sum / num_batches))
+    print("batch[ctx_ids] avg shape  [%.2f, %.2f]" %
+          (ctx_id_dim0_sum / num_batches, ctx_id_dim1_sum / num_batches))
 
 if __name__ == "__main__":
     main()

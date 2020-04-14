@@ -2,6 +2,7 @@ import torch
 import logging
 import tqdm
 import time
+import math
 from anagen.dataset import collate
 from anagen.utils import batch_to_device
 
@@ -21,6 +22,7 @@ def parse_train_args(parser):
     parser.add_argument("--max_segment_len", type=int, default=256)
     parser.add_argument("--shuffle_examples", action="store_true")
     parser.add_argument("--data_augment", type=str, choices=[None, "null_from_l0"])
+    parser.add_argument("--data_augment_max_span_width", type=int, default=10)
     parser.add_argument("--train_data_augment_file", type=str)
     parser.add_argument("--eval_data_augment_file", type=str)
 
@@ -38,7 +40,7 @@ def parse_train_args(parser):
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--train_epochs", type=int, default=1)
     parser.add_argument("--log_steps", type=int, default=100)
-    parser.add_argument("--eval_and_save_by_epoch", action="store_true")
+    parser.add_argument("--eval_and_save_by_epoch", type=float)
     parser.add_argument("--eval_and_save_by_steps", type=int)
     parser.add_argument("--save_optimizer_state", action="store_true")
     parser.add_argument("--save_latest_state", action="store_true")
@@ -107,9 +109,19 @@ def train(args, model, train_dataset, eval_dataset):
     print("  Batch size = %d" % args.train_batch_size)
     print("  Logging every %d steps" % args.log_steps)
     if args.eval_and_save_by_epoch:
-        print("  Evaluating and saving model at the end of every epoch")
+        print("  Evaluating and saving model every %.2f%% of every epoch" % (args.eval_and_save_by_epoch * 100))
     if args.eval_and_save_by_steps:
         print("  Evaluating and saving model every %d steps" % args.eval_and_save_by_steps)
+
+    # eval by epoch is default option
+    if args.eval_and_save_by_epoch and args.eval_and_save_by_epoch < 1.0:
+        eval_and_save_by_steps = math.floor(num_batches * args.eval_and_save_by_epoch)
+    else:
+        eval_and_save_by_steps = None
+
+    # override save by epoch options if save by steps
+    if args.eval_and_save_by_steps:
+        eval_and_save_by_steps = args.eval_and_save_by_steps
 
     if args.model_save_path:
         # keep track of best loss for early stopping
@@ -120,20 +132,20 @@ def train(args, model, train_dataset, eval_dataset):
     training_steps_in_this_session = 0
 
     # data to monitor memory usage
-    ctx_len_sum = 0
-    num_ctxs_sum = 0
-    actual_batch_size_sum = 0
-    anaphor_len_sum = 0
+    ctx_ids_dim0_sum = 0
+    ctx_ids_dim1_sum = 0
+    anaphor_ids_dim0_sum = 0
+    anaphor_ids_dim1_sum = 0
     for epoch in range(args.train_epochs):
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
             start_time = time.time()
 
             # monitor memory usage
-            num_ctxs_sum += batch["ctx_ids"].shape[0]
-            ctx_len_sum += batch["ctx_ids"].shape[1]
-            actual_batch_size_sum += batch["anaphor_ids"].shape[0]
-            anaphor_len_sum += batch["anaphor_ids"].shape[1]
+            ctx_ids_dim0_sum += batch["ctx_ids"].shape[0]
+            ctx_ids_dim1_sum += batch["ctx_ids"].shape[1]
+            anaphor_ids_dim0_sum += batch["anaphor_ids"].shape[0]
+            anaphor_ids_dim1_sum += batch["anaphor_ids"].shape[1]
 
             batch = batch_to_device(batch, device)
             model.zero_grad()
@@ -152,7 +164,7 @@ def train(args, model, train_dataset, eval_dataset):
             loss = loss.item()
             del res_dict
 
-            if training_steps_in_this_session < 100 or global_step % args.log_steps == 0:
+            if training_steps_in_this_session < 20 or global_step % args.log_steps == 0:
                 avg_time_per_batch = total_training_time / training_steps_in_this_session
                 estimated_time = (num_batches - (step+1)) * avg_time_per_batch
                 print("  step %d/%d, global_step %d, batch loss = %.6f" \
@@ -160,22 +172,23 @@ def train(args, model, train_dataset, eval_dataset):
                 print("  avg time per batch = %.2f, est %.2f mins left for this epoch" \
                       % (avg_time_per_batch, estimated_time / 60))
 
-            if training_steps_in_this_session < 100 or global_step % (args.log_steps * 10) == 0:
+            if training_steps_in_this_session < 20 or global_step % (args.log_steps * 10) == 0:
                 print("  [tensor dims] ctx_ids [%d, %d], avg [%.2f, %.2f], anaphor_ids [%d, %d], avg [%.2f, %.2f]" \
                       % (batch["ctx_ids"].shape[0], batch["ctx_ids"].shape[1],
-                         num_ctxs_sum / training_steps_in_this_session,
-                         ctx_len_sum / training_steps_in_this_session,
+                         ctx_ids_dim0_sum / training_steps_in_this_session,
+                         ctx_ids_dim1_sum / training_steps_in_this_session,
                          batch["anaphor_ids"].shape[0], batch["anaphor_ids"].shape[1],
-                         actual_batch_size_sum / training_steps_in_this_session,
-                         anaphor_len_sum / training_steps_in_this_session))
+                         anaphor_ids_dim0_sum / training_steps_in_this_session,
+                         anaphor_ids_dim1_sum / training_steps_in_this_session))
 
-            if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:
+            if eval_and_save_by_steps and global_step % eval_and_save_by_steps == 0 \
+                and step < num_batches - eval_and_save_by_steps:
                 best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
                     best_loss, step, global_step, model,
                     optimizer if args.save_optimizer_state else None,
                     args.save_latest_state)
 
-        if args.eval_and_save_by_epoch:
+        if args.eval_and_save_by_steps is None:
             best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
                 best_loss, step, global_step, model,
                 optimizer if args.save_optimizer_state else None,

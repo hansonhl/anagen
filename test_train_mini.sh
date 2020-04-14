@@ -15,5 +15,6 @@ python run_train.py \
     --data_augment "null_from_l0" \
     --train_data_augment_file data/bert_base.dev_head2.npy \
     --eval_data_augment_file data/bert_base.dev_head2.npy \
+    --data_augment_max_span_width 10 \
     --model_save_path output/test_model_save \
-    --eval_and_save_by_epoch
+    --eval_and_save_by_epoch 0.25
