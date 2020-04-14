@@ -163,9 +163,9 @@ def train(args, model, train_dataset, eval_dataset):
             if training_steps_in_this_session < 100 or global_step % (args.log_steps * 10) == 0:
                 print("  [tensor dims] ctx_ids [%d, %d], avg [%.2f, %.2f], anaphor_ids [%d, %d], avg [%.2f, %.2f]" \
                       % (batch["ctx_ids"].shape[0], batch["ctx_ids"].shape[1],
-                         batch["anaphor_ids"].shape[0], batch["anaphor_ids"].shape[1],
                          num_ctxs_sum / training_steps_in_this_session,
                          ctx_len_sum / training_steps_in_this_session,
+                         batch["anaphor_ids"].shape[0], batch["anaphor_ids"].shape[1],
                          actual_batch_size_sum / training_steps_in_this_session,
                          anaphor_len_sum / training_steps_in_this_session))
 
