@@ -210,7 +210,7 @@ class AnagenDataset(Dataset):
                 anaphor_start = mentions[anaphor_i][0]
                 anaphor_end = mentions[anaphor_i][1]
 
-                if self.max_span_width \
+                if self.max_span_width is not None \
                     and anaphor_end - anaphor_start + 1 > self.max_span_width:
                     continue
 
