@@ -270,7 +270,7 @@ class AnagenDataset(Dataset):
 
         for anaphor_start, anaphor_end in anaphors_with_null_anteceds:
             # IMPORTANT: cap max len of anaphor with null anteced at higher value (20)
-            if anaphor_end - anaphor_start + 1 > self.max_span_width * 2:
+            if anaphor_end - anaphor_start + 1 > self.max_span_width * 1.5:
                 continue
             ctx_seg_start_idx, ctx_seg_end_idx = \
                 self.get_ctx_seg_idxs(segment_starts, anaphor_start)
