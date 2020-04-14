@@ -119,10 +119,23 @@ def train(args, model, train_dataset, eval_dataset):
 
     total_training_time = 0.0
     training_steps_in_this_session = 0
+
+    # data to monitor memory usage
+    ctx_len_sum = 0
+    num_ctxs_sum = 0
+    actual_batch_size_sum = 0
+    anaphor_len_sum = 0
     for epoch in range(args.train_epochs):
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
             start_time = time.time()
+
+            # monitor memory usage
+            num_ctx_sum += batch["ctx_ids"].shape[0]
+            ctx_len_sum += batch["ctx_ids"].shape[1]
+            actual_batch_size_sum += batch["anaphor_ids"].shape[0]
+            anaphor_len_sum += batch["anaphor_ids"].shape[1]
+
             batch = batch_to_device(batch, device)
             model.zero_grad()
             model.train()
@@ -147,6 +160,13 @@ def train(args, model, train_dataset, eval_dataset):
                       % (step+1, num_batches, global_step, loss))
                 print("  avg time per batch = %.2f, est %.2f mins left for this epoch" \
                       % (avg_time_per_batch, estimated_time / 60))
+
+            if global_step % (args.log_steps * 10) == 0:
+                print("  [input tensor avg dims] ctx_ids [%.2f, %.2f], anaphor_ids [%.2f, %.2f]" \
+                      % (num_ctx_sum / training_steps_in_this_session,
+                         ctx_len_sum / training_steps_in_this_session,
+                         actual_batch_size_sum / training_steps_in_this_session,
+                         anaphor_len_sum / training_steps_in_this_session))
 
             if args.eval_and_save_by_steps and global_step % args.eval_and_save_by_steps == 0:
                 best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
