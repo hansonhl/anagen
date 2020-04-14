@@ -19,6 +19,7 @@ def parse_train_args(parser):
     parser.add_argument("--max_span_width", type=int, default=10)
     parser.add_argument("--max_num_ctxs_in_batch", type=int, default=8)
     parser.add_argument("--max_segment_len", type=int, default=512)
+    parser.add_argument("--null_ctx_len", type=int, default=128)
     parser.add_argument("--shuffle_examples", action="store_true")
     parser.add_argument("--data_augment", type=str, choices=[None, "null_from_l0"])
     parser.add_argument("--train_data_augment_file", type=str)
