@@ -160,7 +160,7 @@ def train(args, model, train_dataset, eval_dataset):
                 print("  avg time per batch = %.2f, est %.2f mins left for this epoch" \
                       % (avg_time_per_batch, estimated_time / 60))
 
-            if global_step % (args.log_steps * 10) == 0:
+            if training_steps_in_this_session < 100 or global_step % (args.log_steps * 10) == 0:
                 print("  [input tensor avg dims] ctx_ids [%.2f, %.2f], anaphor_ids [%.2f, %.2f]" \
                       % (num_ctxs_sum / training_steps_in_this_session,
                          ctx_len_sum / training_steps_in_this_session,
