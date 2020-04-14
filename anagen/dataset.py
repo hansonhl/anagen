@@ -114,7 +114,7 @@ class AnagenExample:
 class AnagenDataset(Dataset):
     def __init__(self, input_file=None, data_augment=None, data_augment_file=None,
                  batch_size=32, max_span_width=10,
-                 max_num_ctxs_in_batch=8, max_segment_len=512, null_ctx_len=128,
+                 max_num_ctxs_in_batch=8, max_segment_len=256,
                  use_speaker_info=False, shuffle=False, tokenizer=None):
         self.documents = {}
         self.docs_to_examples = {}
@@ -123,7 +123,6 @@ class AnagenDataset(Dataset):
         self.max_span_width = max_span_width
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
         self.max_segment_len = max_segment_len
-        self.null_ctx_len = null_ctx_len
         self.use_speaker_info = use_speaker_info
         self.shuffle = shuffle
 
@@ -265,8 +264,7 @@ class AnagenDataset(Dataset):
 
         for anaphor_start, anaphor_end in anaphors_with_null_anteceds:
             ctx_seg_start_idx, ctx_seg_end_idx = \
-                self.get_ctx_seg_idxs(segment_starts, anaphor_start,
-                                      max_segment_len=self.null_ctx_len)
+                self.get_ctx_seg_idxs(segment_starts, anaphor_start)
             ex = AnagenExample(doc_key,
                                -1, -1,
                                anaphor_start, anaphor_end,
@@ -284,8 +282,10 @@ class AnagenDataset(Dataset):
     """ Determine the start of the context"""
     def get_ctx_seg_idxs(self, segment_starts, anaphor_start, max_segment_len=None):
         max_segment_len = self.max_segment_len if max_segment_len is None else max_segment_len
+
         ctx_seg_start_idx = np.argmax(anaphor_start - segment_starts <= max_segment_len)
         ctx_seg_end_idx = np.argmax(segment_starts > anaphor_start) - 1
+        # print("anaphor_start", anaphor_start, "segment_starts", segment_starts, "start_idx", ctx_seg_start_idx)
         return ctx_seg_start_idx, ctx_seg_end_idx
 
     """ After preparing all examples, group them into batches stored in memory"""
@@ -310,11 +310,14 @@ class AnagenDataset(Dataset):
     def _columnize_and_add_batch(self, batch, doc_key):
         # print("***adding a new batch***")
         doc = self.documents[doc_key]
-
+        # print("ctx_seg_start_idxs", [ex.ctx_seg_start_idx for ex in batch])
         ctx_starts = [doc.segment_starts[ex.ctx_seg_start_idx] for ex in batch]
+
         anteced_starts = [ex.anteced_start for ex in batch]
         anteced_ends = [ex.anteced_end for ex in batch]
         anaphor_starts = [ex.anaphor_start for ex in batch]
+        # print("ctx_starts", ctx_starts)
+        # print("anaphor_starts", anaphor_starts)
         if self.use_speaker_info:
             speaker_info = [doc.speakers[ex.anteced_start] == doc.speakers[ex.anaphor_start] \
                             if ex.anteced_start >= 0 else False

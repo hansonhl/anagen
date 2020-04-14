@@ -23,7 +23,6 @@ def main():
                                   max_span_width=args.max_span_width,
                                   max_num_ctxs_in_batch=args.max_num_ctxs_in_batch,
                                   max_segment_len=args.max_segment_len,
-                                  null_ctx_len=args.null_ctx_len,
                                   use_speaker_info=args.use_speaker_info,
                                   shuffle=args.shuffle_examples,
                                   tokenizer=tokenizer)
@@ -36,7 +35,6 @@ def main():
                                      max_span_width=args.max_span_width,
                                      max_num_ctxs_in_batch=args.max_num_ctxs_in_batch,
                                      max_segment_len=args.max_segment_len,
-                                     null_ctx_len=args.null_ctx_len,
                                      use_speaker_info=args.use_speaker_info,
                                      tokenizer=tokenizer)
     else:

@@ -11,6 +11,7 @@ python run_train.py \
     --sum_start_end_emb \
     --use_speaker_info \
     --use_distance_info \
+    --shuffle_examples \
     --data_augment "null_from_l0" \
     --train_data_augment_file data/bert_base.dev_head2.npy \
     --eval_data_augment_file data/bert_base.dev_head2.npy \

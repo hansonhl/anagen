@@ -18,8 +18,7 @@ def parse_train_args(parser):
     parser.add_argument("--eval_batch_size", type=int, default=16)
     parser.add_argument("--max_span_width", type=int, default=10)
     parser.add_argument("--max_num_ctxs_in_batch", type=int, default=8)
-    parser.add_argument("--max_segment_len", type=int, default=512)
-    parser.add_argument("--null_ctx_len", type=int, default=128)
+    parser.add_argument("--max_segment_len", type=int, default=256)
     parser.add_argument("--shuffle_examples", action="store_true")
     parser.add_argument("--data_augment", type=str, choices=[None, "null_from_l0"])
     parser.add_argument("--train_data_augment_file", type=str)
@@ -131,7 +130,7 @@ def train(args, model, train_dataset, eval_dataset):
             start_time = time.time()
 
             # monitor memory usage
-            num_ctx_sum += batch["ctx_ids"].shape[0]
+            num_ctxs_sum += batch["ctx_ids"].shape[0]
             ctx_len_sum += batch["ctx_ids"].shape[1]
             actual_batch_size_sum += batch["anaphor_ids"].shape[0]
             anaphor_len_sum += batch["anaphor_ids"].shape[1]
@@ -163,7 +162,7 @@ def train(args, model, train_dataset, eval_dataset):
 
             if global_step % (args.log_steps * 10) == 0:
                 print("  [input tensor avg dims] ctx_ids [%.2f, %.2f], anaphor_ids [%.2f, %.2f]" \
-                      % (num_ctx_sum / training_steps_in_this_session,
+                      % (num_ctxs_sum / training_steps_in_this_session,
                          ctx_len_sum / training_steps_in_this_session,
                          actual_batch_size_sum / training_steps_in_this_session,
                          anaphor_len_sum / training_steps_in_this_session))
