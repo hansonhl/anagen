@@ -123,6 +123,7 @@ class AnagenDataset(Dataset):
         self.batches = []
         self.batch_size = batch_size
         self.max_span_width = max_span_width
+        self.data_augment_max_span_width = data_augment_max_span_width
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
         self.max_segment_len = max_segment_len
         self.use_speaker_info = use_speaker_info
@@ -142,7 +143,6 @@ class AnagenDataset(Dataset):
                 for line in f:
                     self._process_example(json.loads(line))
         else:
-            self.data_augment_max_span_width = data_augment_max_span_width
             if data_augment == "null_from_l0":
                 aug_f = open(data_augment_file, "rb")
                 data_f = open(input_file, "r")
