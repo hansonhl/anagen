@@ -131,7 +131,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         # Series of tokenization and data preprocessing similar to AnagenDataset
         # initialize dataset on this document, use dataset object later to get
         # input into s0.
-        dataset = AnagenDataset(jsonlines_file=None, batch_size=self.batch_size,
+        dataset = AnagenDataset(input_file=None, batch_size=self.batch_size,
                                 max_span_width=MAX_SPAN_WIDTH,
                                 max_num_ctxs_in_batch=self.max_num_ctxs_in_batch,
                                 max_segment_len=self.max_segment_len,

@@ -136,43 +136,44 @@ class AnagenDataset(Dataset):
             self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
         # just use print for debugging and logging purposes now
-        print("Initializing dataset from %s" % input_file)
-        print("Shuffling examples in each document" if self.shuffle else "Not shuffling examples in document")
-        if data_augment is None:
-            with open(input_file, "r") as f:
-                for line in f:
-                    self._process_example(json.loads(line))
-        else:
-            if data_augment == "null_from_l0":
-                aug_f = open(data_augment_file, "rb")
-                data_f = open(input_file, "r")
-
-                data_dicts = np.load(aug_f, allow_pickle=True).item().get("data_dicts")
-                for line_num, line in enumerate(data_f):
-                    self._process_example(json.loads(line), aug_data_dict=data_dicts[line_num])
-                data_f.close()
-                aug_f.close()
+        if input_file:
+            print("Initializing dataset from %s" % input_file)
+            print("Shuffling examples in each document" if self.shuffle else "Not shuffling examples in document")
+            if data_augment is None:
+                with open(input_file, "r") as f:
+                    for line in f:
+                        self._process_example(json.loads(line))
             else:
-                raise NotImplementedError()
+                if data_augment == "null_from_l0":
+                    aug_f = open(data_augment_file, "rb")
+                    data_f = open(input_file, "r")
 
-        # analysis of sizes
-        # null_anaphor_lens = [ex.anaphor_end - ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs if ex.anteced_start == -1]
-        # null_anaphor_len_distr = Counter(null_anaphor_lens)
-        # print("lens of anaphors with null antecedents", null_anaphor_len_distr.most_common())
-        # avg_anaphor_len = sum([ex.anaphor_end-ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs]) / self.num_examples
-        # print("avg anaphor len %.2f" % avg_anaphor_len)
+                    data_dicts = np.load(aug_f, allow_pickle=True).item().get("data_dicts")
+                    for line_num, line in enumerate(data_f):
+                        self._process_example(json.loads(line), aug_data_dict=data_dicts[line_num])
+                    data_f.close()
+                    aug_f.close()
+                else:
+                    raise NotImplementedError()
 
-        self.num_null_examples = len([None for exs in self.docs_to_examples.values() for ex in exs if ex.anteced_start == -1])
+            # analysis of sizes
+            # null_anaphor_lens = [ex.anaphor_end - ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs if ex.anteced_start == -1]
+            # null_anaphor_len_distr = Counter(null_anaphor_lens)
+            # print("lens of anaphors with null antecedents", null_anaphor_len_distr.most_common())
+            # avg_anaphor_len = sum([ex.anaphor_end-ex.anaphor_start + 1 for exs in self.docs_to_examples.values() for ex in exs]) / self.num_examples
+            # print("avg anaphor len %.2f" % avg_anaphor_len)
 
-        print("Obtained %d examples, %d (%.2f%%) examples with null antecedents" \
-              % (self.num_examples, self.num_null_examples, self.num_null_examples/self.num_examples*100))
-        print("Compiling batches, batch size %d..." % self.batch_size)
-        self._finalize_batches()
-        print("Compiled %d batches." % len(self.batches))
+            self.num_null_examples = len([None for exs in self.docs_to_examples.values() for ex in exs if ex.anteced_start == -1])
 
-        num_examples_in_batches = 0
-        for b in self.batches:
-            num_examples_in_batches += len(b[2])
+            print("Obtained %d examples, %d (%.2f%%) examples with null antecedents" \
+                  % (self.num_examples, self.num_null_examples, self.num_null_examples/self.num_examples*100))
+            print("Compiling batches, batch size %d..." % self.batch_size)
+            self._finalize_batches()
+            print("Compiled %d batches." % len(self.batches))
+
+            num_examples_in_batches = 0
+            for b in self.batches:
+                num_examples_in_batches += len(b[2])
 
     """ Get the tokens of a span in a given document.
         See definition in AnagenDocument.decode()"""

@@ -7,7 +7,7 @@ python run_train.py \
     --train_batch_size 8 \
     --max_num_ctxs_in_batch 1 \
     --log_steps 5 \
-    --train_epochs 5 \
+    --train_epochs 2 \
     --sum_start_end_emb \
     --use_speaker_info \
     --use_distance_info \
@@ -17,4 +17,5 @@ python run_train.py \
     --eval_data_augment_file data/bert_base.dev_head2.npy \
     --data_augment_max_span_width 10 \
     --model_save_path output/test_model_save \
-    --eval_and_save_by_epoch 0.25
+    --eval_and_save_by_epoch 0.25 \
+    --save_latest_state 

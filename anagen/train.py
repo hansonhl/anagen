@@ -95,12 +95,13 @@ def train(args, model, train_dataset, eval_dataset):
     global_step = 0
 
     if args.model_load_path:
-        global_step = ckpt["global_step"]
-        if not (ckpt["args"].unfreeze_gpt2 ^ args.unfreeze_gpt2):
+        if not (ckpt["args"].unfreeze_gpt2 ^ args.unfreeze_gpt2)\
+            and "optimizer_state_dict" in ckpt:
             print("***** Loading state of optimizer *****")
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         else:
             print("***** Not loading state of optimizer *****")
+
 
     num_batches = len(train_dataset)
     # start training
@@ -123,17 +124,44 @@ def train(args, model, train_dataset, eval_dataset):
         best_step = 0
 
     total_training_time = 0.0
+    epoch = 0
     training_steps_in_this_session = 0
+    stepped_in_epoch = None
+
+    if args.model_load_path:
+        epoch = ckpt["epoch"]
+        global_step = ckpt["global_step"]
+        print("*******num_batches_in_epoch", ckpt["num_batches_in_epoch"])
+        print("*******step_in_epoch", ckpt["step_in_epoch"])
+
+        # deal with case where one session may not finish one full epoch
+        if num_batches == ckpt["num_batches_in_epoch"] \
+            and ckpt["step_in_epoch"] != 0 \
+            and ckpt["step_in_epoch"] != ckpt["num_batches_in_epoch"] - 1:
+            stepped_in_epoch = ckpt["step_in_epoch"]
+            print("Fastforwarding to step %d in epoch %d" % (stepped_in_epoch, epoch))
+
+        if ckpt["step_in_epoch"] == ckpt["num_batches_in_epoch"] - 1:
+            epoch = ckpt["epoch"] + 1
+
+        # clean up checkpoint to save memory
+        del ckpt
+        torch.cuda.empty_cache()
 
     # data to monitor memory usage
     ctx_ids_dim0_sum = 0
     ctx_ids_dim1_sum = 0
     anaphor_ids_dim0_sum = 0
     anaphor_ids_dim1_sum = 0
-    for epoch in range(args.train_epochs):
+    start_time = time.time()
+    while epoch < args.train_epochs:
         print("*** Epoch %d ***" % epoch)
         for step, batch in enumerate(train_dataloader):
-            start_time = time.time()
+            # fast-forward
+            if stepped_in_epoch and step <= stepped_in_epoch:
+                continue
+            elif stepped_in_epoch:
+                stepped_in_epoch = None
 
             # monitor memory usage
             ctx_ids_dim0_sum += batch["ctx_ids"].shape[0]
@@ -151,7 +179,6 @@ def train(args, model, train_dataset, eval_dataset):
             loss.backward()
 
             optimizer.step()
-            total_training_time += time.time() - start_time
             global_step += 1
             training_steps_in_this_session += 1
 
@@ -159,7 +186,7 @@ def train(args, model, train_dataset, eval_dataset):
             del res_dict
 
             if training_steps_in_this_session < 20 or global_step % args.log_steps == 0:
-                avg_time_per_batch = total_training_time / training_steps_in_this_session
+                avg_time_per_batch = (time.time() - start_time) / training_steps_in_this_session
                 estimated_time = (num_batches - (step+1)) * avg_time_per_batch
                 print("  step %d/%d, global_step %d, batch loss = %.6f" \
                       % (step+1, num_batches, global_step, loss))
@@ -176,20 +203,21 @@ def train(args, model, train_dataset, eval_dataset):
                          anaphor_ids_dim1_sum / training_steps_in_this_session))
 
             if eval_and_save_by_steps and step % eval_and_save_by_steps == 0 \
-                and step > 0 \
-                and step < num_batches - eval_and_save_by_steps:
+                and step > 0 and step < num_batches - eval_and_save_by_steps:
                 best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
-                    best_loss, step, global_step, model,
+                    best_loss, step, num_batches, global_step, model,
                     optimizer if args.save_optimizer_state else None,
                     args.save_latest_state)
 
         best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
-            best_loss, step, global_step, model,
+            best_loss, step, num_batches, global_step, model,
             optimizer if args.save_optimizer_state else None,
             args.save_latest_state)
+        epoch += 1
 
 def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch,
-                    global_step, model, optimizer, save_latest_state):
+                             num_batches_in_epoch, global_step,
+                             model, optimizer, save_latest_state):
     eval_results = evaluate(args, model, eval_dataset, global_step)
     eval_loss = eval_results["eval_loss"]
     if args.model_save_path:
@@ -198,6 +226,7 @@ def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch
             "epoch": epoch,
             "eval_loss": eval_loss,
             "step_in_epoch": step_in_epoch,
+            "num_batches_in_epoch": num_batches_in_epoch,
             "global_step": global_step,
             "model_state_dict": model.state_dict()
         }
