@@ -89,6 +89,8 @@ def train(args, model, train_dataset, eval_dataset):
         print("***** Unfreezing gpt2 parameters *****")
         model.unfreeze_gpt2()
 
+    model.to(device)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     global_step = 0
 
@@ -99,8 +101,6 @@ def train(args, model, train_dataset, eval_dataset):
             optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         else:
             print("***** Not loading state of optimizer *****")
-
-    model.to(device)
 
     num_batches = len(train_dataset)
     # start training
