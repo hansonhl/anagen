@@ -41,7 +41,6 @@ def parse_train_args(parser):
     parser.add_argument("--train_epochs", type=int, default=1)
     parser.add_argument("--log_steps", type=int, default=100)
     parser.add_argument("--eval_and_save_by_epoch", type=float)
-    parser.add_argument("--eval_and_save_by_steps", type=int)
     parser.add_argument("--save_optimizer_state", action="store_true")
     parser.add_argument("--save_latest_state", action="store_true")
 
@@ -115,15 +114,10 @@ def train(args, model, train_dataset, eval_dataset):
     if args.eval_and_save_by_steps:
         print("  Evaluating and saving model every %d steps" % args.eval_and_save_by_steps)
 
-    # eval by epoch is default option
     if args.eval_and_save_by_epoch and args.eval_and_save_by_epoch < 1.0:
         eval_and_save_by_steps = math.floor(num_batches * args.eval_and_save_by_epoch)
     else:
         eval_and_save_by_steps = None
-
-    # override save by epoch options if save by steps
-    if args.eval_and_save_by_steps:
-        eval_and_save_by_steps = args.eval_and_save_by_steps
 
     if args.model_save_path:
         # keep track of best loss for early stopping
@@ -184,6 +178,7 @@ def train(args, model, train_dataset, eval_dataset):
                          anaphor_ids_dim1_sum / training_steps_in_this_session))
 
             if eval_and_save_by_steps and step % eval_and_save_by_steps == 0 \
+                and step > 0 \
                 and step < num_batches - eval_and_save_by_steps:
                 best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
                     best_loss, step, global_step, model,
