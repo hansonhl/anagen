@@ -185,11 +185,10 @@ def train(args, model, train_dataset, eval_dataset):
                     optimizer if args.save_optimizer_state else None,
                     args.save_latest_state)
 
-        if args.eval_and_save_by_steps is None:
-            best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
-                best_loss, step, global_step, model,
-                optimizer if args.save_optimizer_state else None,
-                args.save_latest_state)
+        best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
+            best_loss, step, global_step, model,
+            optimizer if args.save_optimizer_state else None,
+            args.save_latest_state)
 
 def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch,
                     global_step, model, optimizer, save_latest_state):
