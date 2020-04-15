@@ -111,8 +111,6 @@ def train(args, model, train_dataset, eval_dataset):
     print("  Logging every %d steps" % args.log_steps)
     if args.eval_and_save_by_epoch:
         print("  Evaluating and saving model every %.2f%% of every epoch" % (args.eval_and_save_by_epoch * 100))
-    if args.eval_and_save_by_steps:
-        print("  Evaluating and saving model every %d steps" % args.eval_and_save_by_steps)
 
     if args.eval_and_save_by_epoch and args.eval_and_save_by_epoch < 1.0:
         eval_and_save_by_steps = math.floor(num_batches * args.eval_and_save_by_epoch)
