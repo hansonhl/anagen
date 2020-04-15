@@ -18,9 +18,10 @@ def main():
 
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-    eval_dataset = AnagenDataset(input_file=args.input_file,
+    eval_dataset = AnagenDataset(input_file=args.eval_input_file,
                                  data_augment=args.data_augment,
-                                 data_augment_input_file=args.eval_data_augment_file,
+                                 data_augment_file=args.eval_data_augment_file,
+                                 data_augment_max_span_width=args.data_augment_max_span_width,
                                  batch_size=args.eval_batch_size,
                                  max_span_width=args.max_span_width,
                                  max_num_ctxs_in_batch=args.max_num_ctxs_in_batch,
@@ -29,12 +30,13 @@ def main():
                                  tokenizer=tokenizer)
 
     model = RNNSpeakerModel.from_checkpoint(args.model_load_path)
-    model.to(device)
 
     ckpt = torch.load(args.model_load_path)
+
     global_step = ckpt["global_step"]
     epoch = ckpt["epoch"]
 
+    model.to(device)
     print("*** Evaluating model that has been trained for %d epochs" % epoch)
 
     evaluate(args, model, eval_dataset, global_step)

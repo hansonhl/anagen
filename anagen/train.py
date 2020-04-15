@@ -89,6 +89,7 @@ def train(args, model, train_dataset, eval_dataset):
         print("***** Unfreezing gpt2 parameters *****")
         model.unfreeze_gpt2()
 
+    # load state dict before transferring to GPU to save memory
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -182,7 +183,7 @@ def train(args, model, train_dataset, eval_dataset):
                          anaphor_ids_dim0_sum / training_steps_in_this_session,
                          anaphor_ids_dim1_sum / training_steps_in_this_session))
 
-            if eval_and_save_by_steps and global_step % eval_and_save_by_steps == 0 \
+            if eval_and_save_by_steps and step % eval_and_save_by_steps == 0 \
                 and step < num_batches - eval_and_save_by_steps:
                 best_loss = eval_and_save_checkpoint(args, epoch, eval_dataset,
                     best_loss, step, global_step, model,
