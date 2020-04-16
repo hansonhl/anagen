@@ -285,6 +285,9 @@ class AnagenDataset(Dataset):
 
         if self.shuffle:
             random.shuffle(anagen_examples)
+        else:
+            # sort in terms of anaphor start
+            anagen_examples = sorted(anagen_examples, key=lambda ex: ex.anaphor_start)
 
         self.docs_to_examples[doc_key] = anagen_examples
         self.num_examples += len(anagen_examples)

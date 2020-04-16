@@ -61,13 +61,14 @@ def in_same_cluster(clusters, span1_start, span1_end, span2_start, span2_end):
 
 class RNNSpeakerRSAModel(CorefRSAModel):
     def __init__(self, model_dir, batch_size, max_segment_len, anteced_top_k,
-                 max_num_ctxs_in_batch, device, tokenizer=None, logger=None):
+                 max_num_ctxs_in_batch, device, s0_normalization="length", tokenizer=None, logger=None):
         super(RNNSpeakerRSAModel, self).__init__(anteced_top_k, logger)
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2") if tokenizer is None else tokenizer
         self.s0_model = RNNSpeakerModel.from_checkpoint(model_dir)
         self.batch_size = batch_size
         self.max_segment_len = max_segment_len
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
+        self.s0_normalization = s0_normalization
         self.device = device
 
         ckpt = torch.load(model_dir)
@@ -381,7 +382,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                 # transform into original order
                 _, unscramble_idxs = torch.sort(scramble_idxs)
                 scores = scores.index_select(0, unscramble_idxs) # [batch, max_len, vocab]
-                anaphor_ids = anaphor_ids.index_select(0, unscramble_idxs) # [batch, max_length]
+                anaphor_ids = anaphor_ids.index_select(0, unscramble_idxs) # [batch, max_len]
                 anaphor_ids_padding_mask = anaphor_ids_padding_mask.index_select(0, unscramble_idxs)
 
                 batch_size = scores.shape[0]
@@ -390,10 +391,17 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                 ones = torch.ones(batch_size, device=self.device).unsqueeze(1)
                 anaphor_ids_padding_mask = torch.cat((ones, anaphor_ids_padding_mask), 1)
 
-                scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
-                scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1)
-                # print("scores before len normalization", scores)
-                scores = scores.div(anaphor_ids_padding_mask.sum(dim=1))
+                if self.s0_normalization == "length":
+                    scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
+                    scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1)
+                    # print("scores before len normalization", scores)
+                    scores = scores.div(anaphor_ids_padding_mask.sum(dim=1))
+                elif self.s0_normalization == "full":
+                    norm = scores.logsumexp(dim=2).mul(anaphor_ids_padding_mask).sum(dim=1)
+                    scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
+                    scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1) - norm
+                else:
+                    raise NotImplementedError()
                 # print("scores after len normalization", scores)
                 # for toks in anaphor_ids:
                 #     print(s0_input.decode_ids(toks))
