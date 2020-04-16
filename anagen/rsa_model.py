@@ -399,10 +399,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                 elif self.s0_normalization == "full":
                     norm = scores.logsumexp(dim=2).mul(anaphor_ids_padding_mask).sum(dim=1)
                     scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
-                    scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1) - norm
+                    scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1)
+                    print("scores before normalization", scores)
+                    scores = scores - norm
+                    print("scores after normalization", scores)
                 else:
                     raise NotImplementedError()
-                # print("scores after len normalization", scores)
+
                 # for toks in anaphor_ids:
                 #     print(s0_input.decode_ids(toks))
                 all_scores += scores.tolist()
