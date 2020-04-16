@@ -131,18 +131,16 @@ def train(args, model, train_dataset, eval_dataset):
     if args.model_load_path:
         epoch = ckpt["epoch"]
         global_step = ckpt["global_step"]
-        # print("*******num_batches_in_epoch", ckpt["num_batches_in_epoch"])
-        print("*******step_in_epoch", ckpt["step_in_epoch"])
         stepped_in_epoch = ckpt["step_in_epoch"]
-        # # deal with case where one session may not finish one full epoch
+        # deal with case where one session may not finish one full epoch
         # if num_batches == ckpt["num_batches_in_epoch"] \
         #     and ckpt["step_in_epoch"] != 0 \
         #     and ckpt["step_in_epoch"] != ckpt["num_batches_in_epoch"] - 1:
         #     stepped_in_epoch = ckpt["step_in_epoch"]
         #     print("Fastforwarding to step %d in epoch %d" % (stepped_in_epoch, epoch))
 
-        if ckpt["step_in_epoch"] == ckpt["num_batches_in_epoch"] - 1:
-            epoch = ckpt["epoch"] + 1
+        # if ckpt["step_in_epoch"] == ckpt["num_batches_in_epoch"] - 1:
+        #     epoch = ckpt["epoch"] + 1
 
         # clean up checkpoint to save memory
         del ckpt
