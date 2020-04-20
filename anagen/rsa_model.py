@@ -496,7 +496,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
         return padded, padding_mask, anaphor_mask, anaphor_toks, lengths, scramble_idxs
 
     def s0(self, s0_input):
-        anaphor_str, context_strs = s0_input
+        context_strs, anaphor_str = s0_input
         with torch.no_grad():
             batch, attention_mask, anaphor_mask, anaphor_toks, lengths, scramble_idxs \
                 = self.prepare_batch(context_strs, anaphor_str)
@@ -606,7 +606,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                 all_input_strs.append(input_str)
 
             # feed into GPT model to get probabilities
-            scores = self.s0(all_input_strs, anaphor_str) #[batch]
+            scores = self.s0((all_input_strs, anaphor_str)) #[batch]
             if single_alpha:
                 scores *= alphas
                 top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
