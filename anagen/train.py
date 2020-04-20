@@ -131,6 +131,8 @@ def train(args, model, train_dataset, eval_dataset):
     if args.model_load_path:
         epoch = ckpt["epoch"]
         global_step = ckpt["global_step"]
+        if args.model_save_path and "best_loss" in ckpt:
+            best_loss = ckpt["best_loss"]
         # stepped_in_epoch = ckpt["step_in_epoch"]
         # deal with case where one session may not finish one full epoch
         if num_batches == ckpt["num_batches_in_epoch"] \
@@ -223,6 +225,7 @@ def eval_and_save_checkpoint(args, epoch, eval_dataset, best_loss, step_in_epoch
             "args": args,
             "epoch": epoch,
             "eval_loss": eval_loss,
+            "best_loss": min(eval_loss, best_loss),
             "step_in_epoch": step_in_epoch,
             "num_batches_in_epoch": num_batches_in_epoch,
             "global_step": global_step,
