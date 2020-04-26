@@ -54,14 +54,14 @@ def combine_subtokens(toks, subtoken_map, tags=None, tag_ranges=None, is_bert=Fa
             res.append(tags[curr_tag_idx][0])
             res.append(tags[curr_tag_idx][1])
             curr_tag_idx += 1
-        print("len of toks", len(toks), "tag_ranges", tag_ranges)
+        # print("len of toks", len(toks), "tag_ranges", tag_ranges)
     for tok_i, (tok, x) in enumerate(zip(toks, subtoken_map)):
         if is_bert and (tok == "[CLS]" or tok == "[SEP]"):
             continue
         if prev_x != x and prev_x != -1:
             if tags and tok_i > tag_ranges[curr_tag_idx][0]:
                 res.append(tags[curr_tag_idx][0])
-                print("appended", tags[curr_tag_idx][0])
+                # print("appended", tags[curr_tag_idx][0])
                 tags[curr_tag_idx] = ("", tags[curr_tag_idx][1])
             res.append(curr_word)
             if tags and tok_i > tag_ranges[curr_tag_idx][1]:

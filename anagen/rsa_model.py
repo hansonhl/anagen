@@ -372,7 +372,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         changes.append((prev_state, new_state, prev_aa_dist, new_aa_dist))
 
                 for change in changes:
-                    debug_changes_f.write("%d, %d\n" % (change[0], change[1]))
+                    debug_changes_f.write("%d, %d, %d, %d\n" % change)
                 if debug_out_file:
                     debug_f.close()
                     debug_changes_f.close()

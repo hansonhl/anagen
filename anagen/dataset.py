@@ -79,7 +79,7 @@ class AnagenDocument:
         subtoken_map = self.subtoken_map[global_start:global_end+1]
         if tags:
             in_toks_tag_ranges = [(s - global_start, e - global_start) for (s, e) in tag_ranges]
-            print("in_toks_tag_ranges", in_toks_tag_ranges)
+            # print("in_toks_tag_ranges", in_toks_tag_ranges)
             res = combine_subtokens(span_toks, subtoken_map, tags=tags, tag_ranges=in_toks_tag_ranges)
         else:
             res = combine_subtokens(span_toks, subtoken_map)
