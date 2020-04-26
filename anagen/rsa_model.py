@@ -64,7 +64,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                  max_num_ctxs_in_batch, device, s0_normalization="length", tokenizer=None, logger=None):
         super(RNNSpeakerRSAModel, self).__init__(anteced_top_k, logger)
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2") if tokenizer is None else tokenizer
-        self.s0_model = RNNSpeakerModel.from_checkpoint(model_dir)
+        self.s0_model = RNNSpeakerModel.from_checkpoint(model_dir, device)
         self.batch_size = batch_size
         self.max_segment_len = max_segment_len
         self.max_num_ctxs_in_batch = max_num_ctxs_in_batch
@@ -161,10 +161,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         # print("gpt_word_to_subtok_end.shape", gpt_word_to_subtok_end.shape)
 
         # get starting positions of segments
+        # print("segment_lens", [len(s) for s in example["sentences"]])
         bert_segment_lens = np.array([0] + [len(s) for s in example["sentences"]][:-1])
         bert_segment_starts = np.cumsum(bert_segment_lens)
+        # print("bert_segment_starts", bert_segment_starts)
         gpt_segment_starts = gpt_word_to_subtok_start[bert_subtok_to_word[bert_segment_starts]]
         gpt_segment_starts = np.append(gpt_segment_starts, len(gpt_toks))
+        # print("gpt_segment_starts", gpt_segment_starts)
 
         # prepare speaker information
         bert_speakers = self.flatten_sentences(example["speakers"])
@@ -178,6 +181,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
         for i in range(len(gpt_segment_starts)-1):
             ctx_start, ctx_end = gpt_segment_starts[i], gpt_segment_starts[i+1]
             segments.append(list(gpt_toks)[ctx_start:ctx_end])
+
         document = AnagenDocument(doc_key=doc_key, segments=segments,
                                   segment_starts=gpt_segment_starts,
                                   subtoken_map=gpt_subtok_to_word,
@@ -197,9 +201,9 @@ class RNNSpeakerRSAModel(CorefRSAModel):
 
         # create examples to add to dataset, logic similar to
         # dataset._process_jsonline() and GPTSpeakerRSAModel.get_s0_input()
-        valid_map = []
-        valid_examples = [] # valid examples per anaphor
-        valid_anteced_arr_idxs = []
+        valid_map = [] # [num_anaphors * top_k,]
+        valid_examples = [] # [num_anaphors, num_valid_exs] valid examples per anaphor
+        valid_anteced_arr_idxs = [] # [num_anaphors, num_valid_exs]
         examples = []
         for anaphor_span_idx in range(len(gpt_span_starts)):
             anaphor_start = gpt_span_starts[anaphor_span_idx]
@@ -275,6 +279,9 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         score_after = score_before + scores[i]
                         anteced_str = document.decode(ex.anteced_start, ex.anteced_end)
                         anteced_strs.append(anteced_str)
+                        # check anaphor start end:
+                        if ex.anaphor_start != anaphor_start:
+                            print("anaphor start different!")
                         # debug_f.write("  anteced (%d, %d) %s: %.2f + %.2f = %.2f" % (
                         #     ex.anteced_start, ex.anteced_end, anteced_str,
                         #     scores[i], score_before, score_after))
@@ -283,6 +290,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                     prev_best_anteced_i = np.argmax(old_scores)
                     new_scores = top_antecedent_scores[anaphor_span_idx][anteced_arr_idxs] + scores
                     new_best_anteced_i = np.argmax(new_scores)
+
                     if new_best_anteced_i != prev_best_anteced_i:
                         ctx_seg_start_idx_1 = exs[prev_best_anteced_i].ctx_seg_start_idx
                         ctx_start_1 = document.segment_starts[ctx_seg_start_idx_1]
@@ -291,8 +299,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         debug_f.write("  BEST ANTECED CHANGED:\n")
                         debug_f.write("  anteced (start, end) str: s0_score + score_before = score_after\n")
                         debug_f.write("  prev best in ctx: (%d, %d) %s: %.2f + %.2f = %.2f\n" % (
-                            exs[prev_best_anteced_i].anteced_start - ctx_start_1,
-                            exs[prev_best_anteced_i].anteced_end - ctx_start_1,
+                            exs[prev_best_anteced_i].anteced_start,
+                            exs[prev_best_anteced_i].anteced_end,
                             anteced_strs[prev_best_anteced_i],
                             scores[prev_best_anteced_i],
                             old_scores[prev_best_anteced_i],
@@ -303,19 +311,33 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             prev_best_anteced_bert_end = bert_word_to_subtok_end[gpt_subtok_to_word[exs[prev_best_anteced_i].anteced_end]]
 
                             if in_same_cluster(clusters, prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
-                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
                                 prev_state = 1
                             else:
-                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
                                 prev_state = 0
+                            tags = [("<prev_ant>", "</prev_ant>"), ("<anaphor>", "</anaphor>")]
+                            tag_ranges = [(exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end),
+                                          (anaphor_start, anaphor_end)]
+                            debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_1, exs[prev_best_anteced_i].anaphor_end,
+                                                                         document.decode(ctx_start_1, exs[prev_best_anteced_i].anaphor_end,
+                                                                         tags=tags, tag_ranges=tag_ranges)))
+                            prev_aa_dist = anaphor_start - exs[prev_best_anteced_i].anteced_start
                         else:
                             prev_state = -1
+                            tags = [("<prev_null>", "</prev_null>"), ("<anaphor>", "</anaphor>")]
+                            tag_ranges = [(exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end),
+                                          (anaphor_start, anaphor_end)]
+                            debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_1, anaphor_end,
+                                                                         document.decode(ctx_start_1, anaphor_end,
+                                                                         tags=tags, tag_ranges=tag_ranges)))
+                            prev_aa_dist = -1
 
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
                         debug_f.write("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f\n" % (
-                            exs[new_best_anteced_i].anteced_start - ctx_start_2,
-                            exs[new_best_anteced_i].anteced_end - ctx_start_2,
+                            exs[new_best_anteced_i].anteced_start,
+                            exs[new_best_anteced_i].anteced_end,
                             anteced_strs[new_best_anteced_i],
                             scores[new_best_anteced_i],
                             old_scores[new_best_anteced_i],
@@ -325,16 +347,29 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             new_best_anteced_bert_start = bert_word_to_subtok_start[gpt_subtok_to_word[exs[new_best_anteced_i].anteced_start]]
                             new_best_anteced_bert_end = bert_word_to_subtok_end[gpt_subtok_to_word[exs[new_best_anteced_i].anteced_end]]
                             if in_same_cluster(clusters, new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
-                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (exs[new_best_anteced_i].anteced_start, exs[new_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
                                 new_state = 1
                             else:
-                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end))
+                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (exs[new_best_anteced_i].anteced_start, exs[new_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
                                 new_state = 0
+                            tags = [("<new_ant>", "</new_ant>"), ("<anaphor>", "</anaphor>")]
+                            tag_ranges = [(exs[new_best_anteced_i].anteced_start, exs[new_best_anteced_i].anteced_end),
+                                          (anaphor_start, anaphor_end)]
+                            debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_2, anaphor_end,
+                                                                         document.decode(ctx_start_2, anaphor_end,
+                                                                         tags=tags, tag_ranges=tag_ranges)))
+                            new_aa_dist = anaphor_start - exs[new_best_anteced_i].anteced_start
                         else:
                             new_state = -1
-                        ctx_end_2 = exs[new_best_anteced_i].anaphor_start - 1
-                        debug_f.write("  [context] %s\n" % document.decode(ctx_start_2, ctx_end_2))
-                        changes.append((prev_state, new_state))
+                            tags = [("<new_null>", "</new_null>"), ("<anaphor>", "</anaphor>")]
+                            tag_ranges = [(exs[new_best_anteced_i].anteced_start, exs[new_best_anteced_i].anteced_end),
+                                          (exs[new_best_anteced_i].anaphor_start, exs[new_best_anteced_i].anaphor_end)]
+                            debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_2, anaphor_end,
+                                                                         document.decode(ctx_start_2, anaphor_end,
+                                                                         tags=tags, tag_ranges=tag_ranges)))
+                            new_aa_dist = -1
+
+                        changes.append((prev_state, new_state, prev_aa_dist, new_aa_dist))
 
                 for change in changes:
                     debug_changes_f.write("%d, %d\n" % (change[0], change[1]))
@@ -538,11 +573,22 @@ class GPTSpeakerRSAModel(CorefRSAModel):
             # debug_f.write("check flat_anaphor_logits.shape, expected [%d,vocab], actual %s" % (self.anteced_top_k * anaphor_len, flat_anaphor_logits.shape))
 
         # old L1 fxn
-    def l1(self, example, top_span_starts, top_span_ends, top_antecedents, top_antecedent_scores, alphas=None):
+    def l1(self, example, top_span_starts, top_span_ends, top_antecedents,
+           top_antecedent_scores, alphas=None, debug=False, debug_out_file=None):
         # TODO: apply scores from s0 to
         single_alpha = isinstance(alphas, int) or isinstance(alphas, float)
+
         if not single_alpha:
             all_l1_scores = [np.copy(top_antecedent_scores) for _ in alphas]
+
+        if single_alpha and debug:
+            if debug_out_file:
+                debug_f = open(debug_out_file+"_verbose.txt", "a")
+                debug_changes_f = open(debug_out_file+"_changes.txt", "a")
+            else:
+                debug_f = sys.stdout
+                debug_changes_f = sys.stdouts
+
         # get top k antecedents
         all_anteced_arr_idxs = self.top_k_idxs_along_axis1(top_antecedent_scores)
         # get span indeces for each one, null anteced has span idx -1.

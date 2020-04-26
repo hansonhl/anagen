@@ -7,9 +7,12 @@ from transformers import GPT2Model, GPT2Tokenizer
 debug_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
 class RNNSpeakerModel(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, device=None):
         super(RNNSpeakerModel, self).__init__()
-        self.device = torch.device("cuda" if args.gpu else "cpu")
+        if device:
+            self.device=device
+        else:
+            self.device = torch.device("cuda" if args.gpu else "cpu")
         # some previous versions do not have metadata options in args
         if hasattr(args, "use_speaker_info"):
             self.use_speaker_info = args.use_speaker_info
@@ -59,10 +62,10 @@ class RNNSpeakerModel(nn.Module):
         self.loss_fxn = nn.CrossEntropyLoss()
 
     @classmethod
-    def from_checkpoint(cls, checkpoint_path):
+    def from_checkpoint(cls, checkpoint_path, device=None):
         ckpt = torch.load(checkpoint_path)
         args = ckpt["args"]
-        model = cls(args)
+        model = cls(args, device)
         model.load_state_dict(ckpt["model_state_dict"])
         return model
 

@@ -57,19 +57,32 @@ class AnagenDocument:
                 and end above are relevant to this segment.
             output_str (bool): whether to undo bpe and return original string. """
 
-    def decode(self, start, end, in_segment=None, output_str=True):
+    def decode(self, start, end, in_segment=None, tags=None, tag_ranges=None, output_str=True):
         if start == -1 and end == -1:
             return "<null>"
-        if not in_segment:
-            in_segment, in_seg_start, in_seg_end = self.index_in_segments(start, end)
+        if tags:
+            assert in_segment is None, "in_segment not supported for labels!"
+            assert tag_ranges is not None, "must specify ranges for tags!"
+        if in_segment is None:
+            start_segment, in_seg_start = self.index_in_segments(start)
+            end_segment, in_seg_end = self.index_in_segments(end)
+            in_segment = start_segment if start_segment == end_segment else None
             global_start, global_end = start, end
         else:
             global_start = self.segment_starts[in_segment] + start
             global_end = self.segment_starts[in_segment] + end
-        span_toks = self.segment_toks[in_segment][in_seg_start:in_seg_end+1]
-        subtoken_map = self.subtoken_map[global_start:global_end+1]
+        if in_segment:
+            span_toks = self.segment_toks[in_segment][in_seg_start:in_seg_end+1]
+        else:
+            span_toks = flatten(self.segment_toks)[global_start:global_end+1]
 
-        res = combine_subtokens(span_toks, subtoken_map)
+        subtoken_map = self.subtoken_map[global_start:global_end+1]
+        if tags:
+            in_toks_tag_ranges = [(s - global_start, e - global_start) for (s, e) in tag_ranges]
+            print("in_toks_tag_ranges", in_toks_tag_ranges)
+            res = combine_subtokens(span_toks, subtoken_map, tags=tags, tag_ranges=in_toks_tag_ranges)
+        else:
+            res = combine_subtokens(span_toks, subtoken_map)
 
         if output_str:
             return " ".join(res)
@@ -177,13 +190,17 @@ class AnagenDataset(Dataset):
 
     """ Get the tokens of a span in a given document.
         See definition in AnagenDocument.decode()"""
-    def decode(self, doc, start, end, in_segment=None, output_str=True):
+    def decode(self, doc, start, end, in_segment=None, tags=None, tag_ranges=None, output_str=True):
         if start == -1 and end == -1:
             return "<null>"
         if isinstance(doc, str):
-            return self.documents[doc].decode(start, end, in_segment, output_str)
+            return self.documents[doc].decode(start, end, in_segment=in_segment,
+                                              tags=tags, tag_ranges=tag_ranges,
+                                              output_str=output_str)
         if isinstance(doc, AnagenDocument):
-            return doc.decode(start, end, in_segment, output_str)
+            return doc.decode(start, end, in_segment=in_segment,
+                              tags=tags, tag_ranges=tag_ranges,
+                              output_str=output_str)
         else:
             ids = doc[start:end+1]
             return self.decode_ids(ids)

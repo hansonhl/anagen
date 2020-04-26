@@ -10,7 +10,6 @@ from anagen.rsa_model import GPTSpeakerRSAModel, RNNSpeakerRSAModel
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("name")
     parser.add_argument("--from_npy", type=str)
     parser.add_argument("--use_l1", action="store_true")
     parser.add_argument("--s0_model_type", type=str)

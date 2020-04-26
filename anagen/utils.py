@@ -43,23 +43,39 @@ def check_state_dict(model, optimizer=None):
             model.null_anteced_emb.data[:10].tolist(),
             model.hidden_to_logits.weight[0][:10].tolist())
 
-def combine_subtokens(toks, subtoken_map, is_bert=False):
+def combine_subtokens(toks, subtoken_map, tags=None, tag_ranges=None, is_bert=False ):
     res = []
     prev_x = -1
     curr_word = ""
-    for tok, x in zip(toks, subtoken_map):
+    if tags:
+        curr_tag_idx = 0
+        while tag_ranges[curr_tag_idx][0] < 0:
+            # add tags here
+            res.append(tags[curr_tag_idx][0])
+            res.append(tags[curr_tag_idx][1])
+            curr_tag_idx += 1
+        print("len of toks", len(toks), "tag_ranges", tag_ranges)
+    for tok_i, (tok, x) in enumerate(zip(toks, subtoken_map)):
         if is_bert and (tok == "[CLS]" or tok == "[SEP]"):
             continue
         if prev_x != x and prev_x != -1:
+            if tags and tok_i > tag_ranges[curr_tag_idx][0]:
+                res.append(tags[curr_tag_idx][0])
+                print("appended", tags[curr_tag_idx][0])
+                tags[curr_tag_idx] = ("", tags[curr_tag_idx][1])
             res.append(curr_word)
+            if tags and tok_i > tag_ranges[curr_tag_idx][1]:
+                res.append(tags[curr_tag_idx][1])
+                curr_tag_idx += 1
             curr_word = ""
         if is_bert:
             tok = tok.strip("#")
         curr_word += tok
         prev_x = x
+
+
     if curr_word != "":
         res.append(curr_word)
-
     return res
 
 def invert_subtoken_map(subtok_to_word, bert_toks=None):
