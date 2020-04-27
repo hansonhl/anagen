@@ -455,7 +455,8 @@ class RNNSpeakerRSAModel(CorefRSAModel):
 
 
 class GPTSpeakerRSAModel(CorefRSAModel):
-    def __init__(self, model_dir, max_segment_len, anteced_top_k, device, logger=None):
+    def __init__(self, model_dir, max_segment_len, anteced_top_k, device, s0_normalization="length",
+                 logger=None):
         super(GPTSpeakerRSAModel, self).__init__(anteced_top_k, logger)
         self.tokenizer = GPT2Tokenizer.from_pretrained(model_dir)
         model = AnagenGPT2LMHeadModel.from_pretrained(model_dir)
@@ -465,6 +466,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
         self.device = device
         self.max_segment_len = max_segment_len
         self.s0_max_sequence_len = 1024
+        self.s0_normalization = s0_normalization
         self.anteced_top_k = anteced_top_k
         self.logger = logger
 
@@ -687,10 +689,10 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                     if new_best_anteced_i != prev_best_anteced_i:
                         # TODO: add logic for changes
                         debug_f.write("*******************")
-                        debug_f.write("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
-                        debug_f.write("  BEST ANTECED CHANGED:")
-                        debug_f.write("  stats: span_idx (start) str: s0_score/score_before/score_after")
-                        debug_f.write("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+                        debug_f.write("anaphor %d: (%d, %d) %s\n" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
+                        debug_f.write("  BEST ANTECED CHANGED:\n")
+                        debug_f.write("  stats: span_idx (start) str: s0_score/score_before/score_after\n")
+                        debug_f.write("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s\n" % (
                             all_anteced_valid_span_idxs[prev_best_anteced_i],
                             all_anteced_starts[prev_best_anteced_i],
                             old_scores[prev_best_anteced_i],
@@ -700,7 +702,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                             all_input_strs[prev_best_anteced_i]
                         ))
 
-                        if all_anteced_strs[prev_best_anteced_i] != "<null>":
+                        if all_anteced_starts[prev_best_anteced_i] != -1:
                             if in_same_cluster(clusters, all_anteced_starts[prev_best_anteced_i],
                                                all_anteced_ends[prev_best_anteced_i],
                                                anaphor_start, anaphor_end):
@@ -720,7 +722,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                             prev_state = -1
                             prev_aa_dist = -1
 
-                        debug_f.write("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+                        debug_f.write("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s\n" % (
                             all_anteced_valid_span_idxs[new_best_anteced_i],
                             all_anteced_starts[new_best_anteced_i],
                             old_scores[new_best_anteced_i],
@@ -730,7 +732,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                             all_input_strs[new_best_anteced_i]
                         ))
 
-                        if all_anteced_strs[new_best_anteced_i] != "<null>":
+                        if all_anteced_starts[new_best_anteced_i] != -1:
                             if in_same_cluster(clusters, all_anteced_starts[new_best_anteced_i],
                                                all_anteced_ends[new_best_anteced_i],
                                                anaphor_start, anaphor_end):
