@@ -435,9 +435,13 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                     norm = scores.logsumexp(dim=2).mul(anaphor_ids_padding_mask).sum(dim=1)
                     scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
                     scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1)
-                    print("scores before normalization", scores)
                     scores = scores - norm
-                    print("scores after normalization", scores)
+                elif self.s0_normalization == "length_and_full":
+                    norm = scores.logsumexp(dim=2).mul(anaphor_ids_padding_mask).sum(dim=1)
+                    scores = scores.gather(2, anaphor_ids.unsqueeze(2)).squeeze()
+                    scores = scores.mul(anaphor_ids_padding_mask).sum(dim=1)
+                    scores = scores - norm
+                    scores = scores.div(anaphor_ids_padding_mask.sum(dim=1))
                 else:
                     raise NotImplementedError()
 
@@ -601,6 +605,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
         sentence_starts = self.get_sentence_starts(example["sentence_map"])
 
         for anaphor_span_idx in range(top_antecedents.shape[0]):
+            # all of these indices are in BERT tokenization
             anaphor_start = top_span_starts[anaphor_span_idx]
             anaphor_end = top_span_ends[anaphor_span_idx]
             anteced_arr_idxs = all_anteced_arr_idxs[anaphor_span_idx]
@@ -617,6 +622,7 @@ class GPTSpeakerRSAModel(CorefRSAModel):
             # the following are for debug:
             all_anteced_valid_span_idxs = []
             all_anteced_starts = []
+            all_anteced_ends = []
             all_anteced_strs = []
             for anteced_span_idx in anteced_span_idxs:
                 if anteced_span_idx >= anaphor_span_idx:
@@ -632,11 +638,13 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                     # debug_f.write("  anteced %d: (%d, %d) %s" % (anteced_span_idx, anteced_start, anteced_end, " ".join(raw_bert_toks[anteced_start:anteced_end+1])))
                     all_anteced_valid_span_idxs.append(anteced_span_idx)
                     all_anteced_starts.append(anteced_start)
+                    all_anteced_ends.append(anteced_end)
                     all_anteced_strs.append(" ".join(raw_bert_toks[anteced_start:anteced_end+1]))
                 else:
                     ctx_start = self.get_ctx_start(sentence_starts, anaphor_start, None)
                     all_anteced_valid_span_idxs.append(-1)
                     all_anteced_starts.append(-1)
+                    all_anteced_ends.append(-1)
                     all_anteced_strs.append("<Null anteced>")
                     # debug_f.write("  Null anteced")
 
@@ -658,42 +666,72 @@ class GPTSpeakerRSAModel(CorefRSAModel):
                 top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] += scores
 
                 # debug to see scores
-                debug_f.write("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
-                for i, (input_str, span_idx, start_idx, antecstr) in \
-                    enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
-                    score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
-                    score_after = score_before + scores[i]
-                    debug_f.write("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
-                        span_idx, start_idx, antecstr,
-                        scores[i], score_before, score_after))
+                if debug:
+                    clusters = example["clusters"]
+                    # debug_f.write("anteced stats: span_idx (start) str: s0_score/score_before/score_after")
+                    # for i, (input_str, span_idx, start_idx, antecstr) in \
+                    #     enumerate(zip(all_input_strs, all_anteced_valid_span_idxs, all_anteced_starts, all_anteced_strs)):
+                    #     score_before = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs[i]]
+                    #     score_after = score_before + scores[i]
+                    #     debug_f.write("  anteced %d (%d) %s: %.2f/%.2f/%.2f" % (
+                    #         span_idx, start_idx, antecstr,
+                    #         scores[i], score_before, score_after))
 
-                old_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs]
-                prev_best_anteced_i = np.argmax(old_scores)
-                new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
-                new_best_anteced_i = np.argmax(new_scores)
-                if new_best_anteced_i != prev_best_anteced_i:
-                    debug_f.write("*******************")
-                    debug_f.write("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
-                    debug_f.write("  BEST ANTECED CHANGED:")
-                    debug_f.write("  stats: span_idx (start) str: s0_score/score_before/score_after")
-                    debug_f.write("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
-                        all_anteced_valid_span_idxs[prev_best_anteced_i],
-                        all_anteced_starts[prev_best_anteced_i],
-                        old_scores[prev_best_anteced_i],
-                        scores[prev_best_anteced_i],
-                        new_scores[prev_best_anteced_i],
-                        all_anteced_strs[prev_best_anteced_i],
-                        all_input_strs[prev_best_anteced_i]
-                    ))
-                    debug_f.write("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
-                        all_anteced_valid_span_idxs[new_best_anteced_i],
-                        all_anteced_starts[new_best_anteced_i],
-                        old_scores[new_best_anteced_i],
-                        scores[new_best_anteced_i],
-                        new_scores[new_best_anteced_i],
-                        all_anteced_strs[new_best_anteced_i],
-                        all_input_strs[new_best_anteced_i]
-                    ))
+                    old_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs]
+                    prev_best_anteced_i = np.argmax(old_scores)
+                    new_scores = top_antecedent_scores[anaphor_span_idx][anteced_valid_arr_idxs] + scores
+                    new_best_anteced_i = np.argmax(new_scores)
+                    if new_best_anteced_i != prev_best_anteced_i:
+                        # TODO: add logic for changes
+                        debug_f.write("*******************")
+                        debug_f.write("anaphor %d: (%d, %d) %s" % (anaphor_span_idx, anaphor_start, anaphor_end, " ".join(raw_bert_toks[anaphor_start:anaphor_end+1])))
+                        debug_f.write("  BEST ANTECED CHANGED:")
+                        debug_f.write("  stats: span_idx (start) str: s0_score/score_before/score_after")
+                        debug_f.write("  prev_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+                            all_anteced_valid_span_idxs[prev_best_anteced_i],
+                            all_anteced_starts[prev_best_anteced_i],
+                            old_scores[prev_best_anteced_i],
+                            scores[prev_best_anteced_i],
+                            new_scores[prev_best_anteced_i],
+                            all_anteced_strs[prev_best_anteced_i],
+                            all_input_strs[prev_best_anteced_i]
+                        ))
+                        """
+                        if all_anteced_strs[prev_best_anteced_i] != "<null>":
+                            if in_same_cluster(clusters, all_anteced_starts[prev_best_anteced_i], all_anteced_ends[prev_best_anteced_i],
+                                               anaphor_start, anaphor_end):
+                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
+                                prev_state = 1
+                            else:
+                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
+                                prev_state = 0
+                            tags = [("<prev_ant>", "</prev_ant>"), ("<anaphor>", "</anaphor>")]
+                            tag_ranges = [(exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end),
+                                          (anaphor_start, anaphor_end)]
+                            debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_1, exs[prev_best_anteced_i].anaphor_end,
+                                                                         document.decode(ctx_start_1, exs[prev_best_anteced_i].anaphor_end,
+                                                                         tags=tags, tag_ranges=tag_ranges)))
+                            prev_aa_dist = anaphor_start - exs[prev_best_anteced_i].anteced_start
+                        else:
+                            prev_state = -1
+                            tags = [("<prev_null>", "</prev_null>"), ("<anaphor>", "</anaphor>")]
+                            tag_ranges = [(exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end),
+                                          (anaphor_start, anaphor_end)]
+                            debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_1, anaphor_end,
+                                                                         document.decode(ctx_start_1, anaphor_end,
+                                                                         tags=tags, tag_ranges=tag_ranges)))
+                            prev_aa_dist = -1
+                        """
+
+                        debug_f.write("  new_best: %d (%d) %.2f/%.2f/%.2f %s\n[context] %s" % (
+                            all_anteced_valid_span_idxs[new_best_anteced_i],
+                            all_anteced_starts[new_best_anteced_i],
+                            old_scores[new_best_anteced_i],
+                            scores[new_best_anteced_i],
+                            new_scores[new_best_anteced_i],
+                            all_anteced_strs[new_best_anteced_i],
+                            all_input_strs[new_best_anteced_i]
+                        ))
             else:
                 for i in range(len(alphas)):
                     all_l1_scores[i][anaphor_span_idx][anteced_valid_arr_idxs] += scores * alphas[i]
