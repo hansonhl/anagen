@@ -5,7 +5,7 @@ import tqdm
 import time
 import sys
 
-from anagen.utils import combine_subtokens, batch_to_device, invert_subtoken_map
+from anagen.utils import combine_subtokens, batch_to_device, invert_subtoken_map, is_pronoun
 from anagen.dataset import AnagenDataset, AnagenDocument, AnagenExample, collate, GPT2_EOS_TOKEN_ID
 from anagen.speaker_model import RNNSpeakerModel
 from transformers import AnagenGPT2LMHeadModel, GPT2Tokenizer
@@ -294,6 +294,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                     if new_best_anteced_i != prev_best_anteced_i:
                         ctx_seg_start_idx_1 = exs[prev_best_anteced_i].ctx_seg_start_idx
                         ctx_start_1 = document.segment_starts[ctx_seg_start_idx_1]
+                        str_1 = anteced_strs[prev_best_anteced_i]
                         debug_f.write("*******************\n")
                         debug_f.write("anaphor (%d, %d) %s\n" % (anaphor_start, anaphor_end, anaphor_str))
                         debug_f.write("  BEST ANTECED CHANGED:\n")
@@ -301,20 +302,22 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                         debug_f.write("  prev best in ctx: (%d, %d) %s: %.2f + %.2f = %.2f\n" % (
                             exs[prev_best_anteced_i].anteced_start,
                             exs[prev_best_anteced_i].anteced_end,
-                            anteced_strs[prev_best_anteced_i],
+                            str_1,
                             scores[prev_best_anteced_i],
                             old_scores[prev_best_anteced_i],
                             new_scores[prev_best_anteced_i]
                         ))
-                        if anteced_strs[prev_best_anteced_i] != "<null>":
+                        if str_1 != "<null>":
                             prev_best_anteced_bert_start = bert_word_to_subtok_start[gpt_subtok_to_word[exs[prev_best_anteced_i].anteced_start]]
                             prev_best_anteced_bert_end = bert_word_to_subtok_end[gpt_subtok_to_word[exs[prev_best_anteced_i].anteced_end]]
 
                             if in_same_cluster(clusters, prev_best_anteced_bert_start, prev_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
-                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
+                                debug_f.write("  ### (%d, %d) in same cluster as anaphor (%d, %d) ###\n" \
+                                              % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
                                 prev_state = 1
                             else:
-                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
+                                debug_f.write("  @@@ (%d, %d) not in same cluster as anaphor (%d, %d) @@@\n" \
+                                              % (exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end, anaphor_start, anaphor_end))
                                 prev_state = 0
                             tags = [("<prev_ant>", "</prev_ant>"), ("<anaphor>", "</anaphor>")]
                             tag_ranges = [(exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end),
@@ -328,6 +331,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                             tags = [("<prev_null>", "</prev_null>"), ("<anaphor>", "</anaphor>")]
                             tag_ranges = [(exs[prev_best_anteced_i].anteced_start, exs[prev_best_anteced_i].anteced_end),
                                           (anaphor_start, anaphor_end)]
+                            prev_pn = "NAP"
                             debug_f.write("  [context] (%d, %d) %s\n" % (ctx_start_1, anaphor_end,
                                                                          document.decode(ctx_start_1, anaphor_end+15,
                                                                          tags=tags, tag_ranges=tag_ranges)))
@@ -335,15 +339,16 @@ class RNNSpeakerRSAModel(CorefRSAModel):
 
                         ctx_seg_start_idx_2 = exs[new_best_anteced_i].ctx_seg_start_idx
                         ctx_start_2 = document.segment_starts[ctx_seg_start_idx_2]
+                        str_2 = anteced_strs[new_best_anteced_i]
                         debug_f.write("  new best in ctx : (%d, %d)%s: %.2f + %.2f = %.2f\n" % (
                             exs[new_best_anteced_i].anteced_start,
                             exs[new_best_anteced_i].anteced_end,
-                            anteced_strs[new_best_anteced_i],
+                            str_2,
                             scores[new_best_anteced_i],
                             old_scores[new_best_anteced_i],
                             new_scores[new_best_anteced_i]
                         ))
-                        if anteced_strs[new_best_anteced_i] != "<null>":
+                        if str_2 != "<null>":
                             new_best_anteced_bert_start = bert_word_to_subtok_start[gpt_subtok_to_word[exs[new_best_anteced_i].anteced_start]]
                             new_best_anteced_bert_end = bert_word_to_subtok_end[gpt_subtok_to_word[exs[new_best_anteced_i].anteced_end]]
                             if in_same_cluster(clusters, new_best_anteced_bert_start, new_best_anteced_bert_end, anaphor_bert_start, anaphor_bert_end):
@@ -359,6 +364,7 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                                                                          document.decode(ctx_start_2, anaphor_end+15,
                                                                          tags=tags, tag_ranges=tag_ranges)))
                             new_aa_dist = anaphor_start - exs[new_best_anteced_i].anteced_start
+
                         else:
                             new_state = -1
                             tags = [("<new_null>", "</new_null>"), ("<anaphor>", "</anaphor>")]
@@ -369,10 +375,10 @@ class RNNSpeakerRSAModel(CorefRSAModel):
                                                                          tags=tags, tag_ranges=tag_ranges)))
                             new_aa_dist = -1
 
-                        changes.append((prev_state, new_state, prev_aa_dist, new_aa_dist))
+                        changes.append((prev_state, new_state, prev_aa_dist, new_aa_dist, str_1, str_2, anaphor_str))
 
                 for change in changes:
-                    debug_changes_f.write("%d, %d, %d, %d\n" % change)
+                    debug_changes_f.write("%d,%d,%d,%d,\"%s\",\"%s\",\"%s\"\n" % change)
                 if debug_out_file:
                     debug_f.close()
                     debug_changes_f.close()

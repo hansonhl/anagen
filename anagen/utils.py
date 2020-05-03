@@ -49,7 +49,7 @@ def combine_subtokens(toks, subtoken_map, tags=None, tag_ranges=None, is_bert=Fa
     curr_word = ""
     if tags:
         curr_tag_idx = 0
-        while tag_ranges[curr_tag_idx][0] < 0:
+        while curr_tag_idx < len(tag_ranges) and [curr_tag_idx][0] < 0:
             # add tags here
             res.append(tags[curr_tag_idx][0])
             res.append(tags[curr_tag_idx][1])
@@ -59,12 +59,12 @@ def combine_subtokens(toks, subtoken_map, tags=None, tag_ranges=None, is_bert=Fa
         if is_bert and (tok == "[CLS]" or tok == "[SEP]"):
             continue
         if prev_x != x and prev_x != -1:
-            if tags and tok_i > tag_ranges[curr_tag_idx][0]:
+            if tags and curr_tag_idx < len(tag_ranges) and tok_i > tag_ranges[curr_tag_idx][0]:
                 res.append(tags[curr_tag_idx][0])
                 # print("appended", tags[curr_tag_idx][0])
                 tags[curr_tag_idx] = ("", tags[curr_tag_idx][1])
             res.append(curr_word)
-            if tags and tok_i > tag_ranges[curr_tag_idx][1]:
+            if tags and curr_tag_idx < len(tag_ranges) and tok_i > tag_ranges[curr_tag_idx][1]:
                 res.append(tags[curr_tag_idx][1])
                 curr_tag_idx += 1
             curr_word = ""
@@ -102,3 +102,26 @@ def set_random_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+pronoun_list = ["I", "me", "my", "mine",
+        "you", "your", "yours",
+        "she", "her", "hers",
+        "he", "him", "his",
+        "it", "its",
+        "we", "us", "our", "ours",
+        "they", "them", "their", "theirs",
+      "myself", "ourselves",
+      "yourself", "yourselves",
+      "himself", "herself", "itself",
+     "theirselves", "theirself", "this", "these",
+     "that", "those",
+     "all", "any", "most", "some", "none",
+     "anybody", "anyone", "anything","each",
+     "either","everybody","everyone","everything","neither","nobody",
+     "one","someone","somebody","something",
+     "both","few","many","several"]
+pronouns = set(pronoun_list)
+
+def is_pronoun(tok):
+    tok = tok if tok == "I" else tok.lower()
+    return tok in pronouns
