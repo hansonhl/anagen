@@ -104,22 +104,22 @@ def set_random_seed(seed):
     torch.manual_seed(seed)
 
 pronoun_list = ["I", "me", "my", "mine",
-        "you", "your", "yours",
-        "she", "her", "hers",
-        "he", "him", "his",
-        "it", "its",
-        "we", "us", "our", "ours",
-        "they", "them", "their", "theirs",
-      "myself", "ourselves",
-      "yourself", "yourselves",
-      "himself", "herself", "itself",
-     "theirselves", "theirself", "this", "these",
-     "that", "those",
-     "all", "any", "most", "some", "none",
-     "anybody", "anyone", "anything","each",
-     "either","everybody","everyone","everything","neither","nobody",
-     "one","someone","somebody","something",
-     "both","few","many","several"]
+    "you", "your", "yours",
+    "she", "her", "hers",
+    "he", "him", "his",
+    "it", "its",
+    "we", "us", "our", "ours",
+    "they", "them", "their", "theirs",
+    "myself", "ourselves",
+    "yourself", "yourselves",
+    "himself", "herself", "itself",
+    "theirselves", "theirself", "this", "these",
+    "that", "those",
+    "all", "any", "most", "some", "none",
+    "anybody", "anyone", "anything","each",
+    "either","everybody","everyone","everything","neither","nobody",
+    "one","someone","somebody","something",
+    "both","few","many","several"]
 pronouns = set(pronoun_list)
 
 def is_pronoun(tok):
